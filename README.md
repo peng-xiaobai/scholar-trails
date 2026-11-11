@@ -1,16 +1,8 @@
-# Scholar Trails｜学缘寻踪
+# Scholar Trails｜学缘寻踪｜学术派系检索：查学者在哪些团队做过研究、常和谁合作
 
-**一句话介绍**
+输入学者姓名，可以查有公开资料可核实的师门关系、曾参与的研究团队和常合作的同行。也可以核对中英文署名，整理公开可检索的论文、专利和软件著作权，并把合著关系画成可交互的网络。
 
-输入学者姓名，查他在哪些团队做过研究、常和谁合作，以及这些人和团队之间有什么联系。
-
-`scholar-trails` 包含五个 Agent Skills，支持核对中英文署名、追查跨机构成果，并把合著关系画成可交互的网络。配套 Python 脚本支持离线导入、对账和建图。
-
-[安装指南](docs/install.md) · [发布到 GitHub](docs/publish.md) · [查看参数与输出说明](skills/academic-faction-finder/references/workflow.md)
-
-## 安装
-
-在 GitHub 的 **Releases** 下载 `scholar-trails.zip`，解压后，把 `skills/` 内的五个目录一起复制到客户端的 Skill 目录。也可以下载源码、克隆仓库，或用 GitHub CLI 批量安装。[Codex 与 Claude Code 的安装路径和命令](docs/install.md)
+[发布到 GitHub](docs/publish.md) · [查看参数与输出说明](skills/academic-faction-finder/references/workflow.md)
 
 ## 快速开始
 
@@ -44,6 +36,25 @@ skills/
 ```
 
 每个入口都有自己的 `SKILL.md`。配套脚本、参考说明和数据模板位于 `skills/academic-faction-finder/`。
+
+## 适用 Agent 与安装方式
+
+Scholar Trails 可在 **Codex** 和 **Claude Code** 中作为 Agent Skills 使用。
+
+| Agent | 仅当前项目 | 当前用户的所有项目 | 调用示例 |
+| --- | --- | --- | --- |
+| Codex | `.agents/skills/` | `~/.agents/skills/` | `$academic-faction-finder` |
+| Claude Code | `.claude/skills/` | `~/.claude/skills/` | `/academic-faction-finder` |
+
+- **下载后手动安装。** 在 GitHub 的 **Releases** 下载 `scholar-trails.zip`，或通过 **Code → Download ZIP** 下载源码。解压后，把 `skills/` 下的五个目录一起复制到上表对应位置，保持同级。
+- **从 Git 克隆后安装。** 运行 `git clone https://github.com/peng-xiaobai/scholar-trails.git`，再复制 `skills/` 下的五个目录。
+- **用 GitHub CLI 批量安装。** 在目标 Git 项目目录运行下面的命令。使用 Claude Code 时将 `codex` 改为 `claude-code`。安装到个人目录时将 `project` 改为 `user`。
+
+```bash
+gh skill install peng-xiaobai/scholar-trails --all --agent codex --scope project
+```
+
+临时试用时，也可以让能读取本地文件的 Agent 直接读取解压目录里的 `skills/academic-faction-finder/SKILL.md`。[完整安装指南](docs/install.md)
 
 ## 运行离线演示
 
