@@ -1,0 +1,3 @@
+﻿work_id,doi,title,year,venue,issn,zone,author_name,orcid,org_name,org_id,author_order,is_first,is_corresponding,role_source
+PAPER001,,Example paper title,2024,Example Journal,1234-5678,Q1,Example Author,,Example University,,1,yes,,example byline
+PAPER001,,Example paper title,2024,Example Journal,1234-5678,Q1,Example Coauthor,,Example Institute,,2,no,no,example byline
