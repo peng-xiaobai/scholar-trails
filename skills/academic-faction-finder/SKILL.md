@@ -16,7 +16,6 @@ description: Profile a researcher and map their role-weighted co-authorship and 
 | 核对中英文署名、同名作者或跨机构身份 | [`academic-author-match`](../academic-author-match/SKILL.md) |
 | 查论文、专利、软著或核对成果覆盖 | [`academic-output-search`](../academic-output-search/SKILL.md) |
 | 列出或导出逐篇论文 | [`academic-paper-list`](../academic-paper-list/SKILL.md) |
-| 核查某位作者的期刊任职或公开审稿记录 | [`academic-journal-role`](../academic-journal-role/SKILL.md) |
 
 ## 默认交付
 
@@ -32,11 +31,8 @@ description: Profile a researcher and map their role-weighted co-authorship and 
 - **核实论文版本与角色。** 正式版、勘误和预印本对齐后再计数。按作者位置核对第一、共同第一、通讯及共同通讯标记，以能定位到具体作者的出版方脚注为准。重点复核会改变合著权重的角色。[成果版本](references/research_outputs.md#成果版本与归属) · [角色与权重](references/workflow.md#12-署名角色与权重)
 - **按需导出论文。** 用户明确要求时，核对范围内所有已确认归属的论文，运行 `research_outputs.py --paper-list` 生成 `paper_list.csv`。检索对象担任一作或通讯的论文优先，两组各按年份从新到旧。核实年份、完整作者顺序、标题和 DOI，缺失或冲突未解的字段留空。只要论文清单时直接走此入口。[论文清单](references/research_outputs.md#按需导出论文清单)
 - **识别可重叠的合作社区。** 默认用合著者之间至少共同署名 2 篇的边识别社区，再按实际合著为目标和其他合作者补充社区归属。默认在某组与至少两位成员累计合著至少两篇即可加入，允许同一人在多个组。保留每组的合作篇数、年份、支撑论文和原始署名单位。与检索对象相连的边按双方角色计 3、2 或 1 分。专利共同发明、软著共同开发和自然人共同著作权分别统计。[社区与署名权重](references/workflow.md#4-解读注意)
-- **按需核查期刊角色。** 用户询问某位合作者在目标期刊的身份时，优先复用已有合著证据，核实其公开的主编、编委、客座编辑或审稿记录，沿官方专刊和公开文章记录补查文献线索。[期刊角色核查](references/workflow.md#14-期刊编辑与审稿角色)
 
 ## 执行入口
-
-仅查期刊角色时，直接按[期刊角色核查](references/workflow.md#14-期刊编辑与审稿角色)执行。
 
 1. 用公开网页和已有证据发现论文。RIS 导出用 `scripts/collect_ris.py`，PubMed 导出用 `scripts/collect_pubmed.py` 离线整理候选。按来源、语言和职业阶段补缺，再核实逐条归属。[默认采集入口](references/workflow.md#8-多源检索与漏检排查)
 2. 按 `assets/research_outputs_template.csv` 整理证据，使用 `scripts/research_outputs.py --input evidence.csv --target PERSON_ID --reference known_outputs.csv --network --out OUT`。该命令对账、导出分层关系、从已核实署名选种子并建图。传入 `--affiliation-history` 使用已核实的履历日期，传入 `--alias-map` 使用机构映射，已排除同名冲突的作者异写可传入 `--name-alias`。仅姓名模式附加 `--network-min-papers 11`。独立清单取不到时省略 `--reference` 并说明范围。指定年份、期刊或自定义图参数时，先生成 `paper_authorship.csv`，再用 `scripts/faction_query.py --source local` 应用对应筛选。[参数和本地流程](references/workflow.md) · [书目来源与字段](references/data_sources.md)

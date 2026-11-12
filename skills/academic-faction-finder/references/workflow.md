@@ -41,18 +41,18 @@
 
 ## 2. 典型命令
 
-离线验证全链路（内置合成数据，含多机构合并、同名不同人、弱边过滤）：
+离线查看单一作者的合作网络。内置的 12 篇虚构论文均包含同一位作者 W. Zhang。
 
 ```bash
-python scripts/faction_query.py --source demo --author "K. Alden" \
-  --min-collab 2 --out ./faction_output
+python scripts/faction_query.py --source demo --author "W. Zhang" \
+  --mode seed --min-collab 2 --out ./faction_output
 ```
 
 按分区 + 年份限定范围：
 
 ```bash
-python scripts/faction_query.py --source demo --author "K. Alden" \
-  --zone Q1 --zone-map assets/zone_map_template.csv --from-year 2019 \
+python scripts/faction_query.py --source demo --author "W. Zhang" \
+  --mode seed --zone Q1 --zone-map assets/zone_map_template.csv --from-year 2019 \
   --out ./faction_output_q1
 ```
 
@@ -75,7 +75,7 @@ python scripts/faction_query.py --source openalex --author "Author Name" \
 只看某位作者的直接合著者圈：
 
 ```bash
-python scripts/faction_query.py --source demo --author "K. Alden" \
+python scripts/faction_query.py --source demo --author "W. Zhang" \
   --mode seed --hop 1 --min-collab 1 --out ./out_seed
 ```
 
@@ -261,20 +261,3 @@ OpenAlex 的通讯作者正向标记会随采集结果保存。Crossref 采集�
 - **只有署名时估计历史机构范围。** 默认对身份已锚定且未按期刊、机构、年代等缩小范围的本地目标论文估计。旧单位至少在两个不同发表年出现。其末次署名之后，同一后续机构至少出现在三个不同发表年的论文中，且最晚证据与旧单位末次署名至少相隔三年。达到条件时，以旧单位首末署名年份填写约略范围，同时保存后续机构和支撑论文。双重署名仍计为旧单位的出现，空单位或未知年份无从支持转换。推断反映论文中可见的历史关联，兼职、滞后发表等情况通过履历核对。用于沿历史机构补查时同时查看相邻年份和无单位过滤的作者档案。
 - **交付字段。** 以 [`assets/affiliation_history_template.csv`](../assets/affiliation_history_template.csv) 录入有来源的履历，用 `--affiliation-history` 传给 `research_outputs.py --network` 或 `faction_query.py --source local`。使用证据表的 `person_id` 作为 `verified_person_id`，或使用已核实的 ORCID。机构填写名称或标识，采用与论文相同的机构别名映射。每个机构阶段一行，并为 `relationship` 填写 `employment`、`education`、`visiting`、`appointment` 等明确关系。没有论文署名的已核实机构阶段也可入表。
 - **解读输出。** `affiliation_timeline.csv` 的 `documented` 表示来自履历，`estimated` 表示署名推断，`observed` 仅填已观察到的年份。有明确履历的机构优先显示履历，同时保留论文署名起止年。合作者的任职时间可以用独立履历补全。若希望推断某位合作者的机构历史，按该作者完整可查的论文范围单独检索。各组合作期仍按实际合著年份统计。
-
-## 14. 期刊编辑与审稿角色
-
-按用户指定的合著者、期刊和时段核查。有唯一的当前期刊时沿用上下文。范围内有多本期刊且指代不明时，先确认期刊名、ISSN 或一篇该刊论文的 DOI。通过期刊全名、ISSN 和出版方核对刊物，再用中英文姓名、署名机构或 ORCID 对齐合著者与角色记录。同一出版社的不同刊物、期刊分栏和特刊分别核对。
-
-| 角色 | 优先证据与可报告范围 |
-| --- | --- |
-| 主编、副主编、栏目编辑、编委、审稿编辑 | 期刊或出版社的编委名单、任命公告或对应年份卷期的编委页。保留原文头衔及适用的期刊或栏目。当前名单用查阅日期表述，明确公布任期时才填写起止时间。 |
-| 客座编辑 | 出版社特刊页面、征稿公告或特刊社论。记录对应特刊及可核实的日期。 |
-| 审稿人 | 期刊具名年度审稿致谢、出版社公开评审记录、可验证且明确列出该刊的 Web of Science 审稿记录，或可信机构写入的 ORCID 审稿活动。记录可见的审稿年份或活动范围。仅见个人履历自述时注明来源性质。公开资料缺少可核验证据时标为待核。 |
-| 某篇文章的处理编辑或审稿人 | 以该论文页面、正式 PDF 或随文公开的同行评审档案所列姓名与角色为依据。核对文章 DOI、角色及原始字段。期刊层级的任职和审稿记录只证明其所载范围。 |
-
-查找文献线索时，沿已核实任期内的卷期目录、特刊目录、社论或公开评审链接搜索目标和合作者的双语署名，发现新论文后按原始署名确认归属。任期与论文时间的重叠可用于缩小查找范围。具体稿件的处理与评审关系只采用公开的逐篇证据。
-
-结果中记录人员、期刊及 ISSN、角色与原文头衔、范围（期刊、栏目、特刊或论文）、已知时间或查阅日期、证据状态及链接。对照既有的共同论文篇数时，期刊服务角色单独呈现。合著次数与边权仍按第 12 节的署名证据计算。
-
-[ORCID 编辑服务记录](https://info.orcid.org/documentation/workflows/editorial-service/) · [ORCID 审稿记录](https://support.orcid.org/hc/en-us/articles/360006971333-Peer-Reviews) · [Web of Science 审稿记录的公开范围](https://webofscience.zendesk.com/hc/en-us/articles/45067449590801-How-does-review-privacy-work-for-Web-of-Science-Reviewer-Recognition-Service)

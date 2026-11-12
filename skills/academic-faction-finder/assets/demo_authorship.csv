@@ -1,33 +1,47 @@
-﻿work_id,doi,title,year,venue,issn,zone,author_name,orcid,org_name,org_id,author_order
-W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Northlake University,,1
-W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Northlake University,,2
-W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,S. Cui,,Eastbay Institute,,3
-W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Northlake University,,1
-W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Eastbay Institute,,1
-W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Northlake University,,2
-W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Eastbay Institute,,1
-W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,S. Cui,,Eastbay Institute,,2
-W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Northlake University,,3
-W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,R. Bai,,Northlake Univ.,,1
-W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,S. Cui,,Eastbay Institute,,2
-W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,T. Deng,,Riverfield Lab,,1
-W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,U. Fang,,Riverfield Lab,,2
-W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,V. Gao,,Southridge University,,3
-W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,T. Deng,,Riverfield Lab,,1
-W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,V. Gao,,Southridge University,,2
-W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,U. Fang,,Riverfield Lab,,1
-W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,V. Gao,,Southridge University,,2
-W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,T. Deng,,Riverfield Lab,,3
-W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,T. Deng,,Southridge University,,3
-W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Highland Institute,,1
-W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,X. Hu,,Highland Institute,,2
-W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,Y. Jiang,,Coastal Lab,,3
-W09,,Target scattering II,2021,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Highland Institute,,1
-W09,,Target scattering II,2021,Journal of Optical Sensing,1111-1111,Q1,Y. Jiang,,Coastal Lab,,2
-W10,,Target scattering III,2022,Frontiers in Spectral Imaging,3333-3333,Q1,X. Hu,,Highland Institute,,1
-W10,,Target scattering III,2022,Frontiers in Spectral Imaging,3333-3333,Q1,Y. Jiang,,Coastal Lab,,2
-W10,,Target scattering III,2022,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Highland Institute,,3
-W11,,One-off cross-group note,2022,General Science Reports,4444-4444,Q3,K. Alden,,Northlake University,,1
-W11,,One-off cross-group note,2022,General Science Reports,4444-4444,Q3,W. Zhang,,Inland Polytechnic,,2
-W12,,Single bridge paper,2021,Remote Measurement Letters,2222-2222,Q2,S. Cui,,Eastbay Institute,,1
-W12,,Single bridge paper,2021,Remote Measurement Letters,2222-2222,Q2,T. Deng,,Riverfield Lab,,2
+work_id,doi,title,year,venue,issn,zone,author_name,orcid,org_name,org_id,author_order,is_first,is_corresponding,role_source
+W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,1,sole,no,Synthetic demo byline
+W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Northlake University,,2,no,sole,Synthetic demo byline
+W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,S. Cui,,Eastbay Institute,,3,no,no,Synthetic demo byline
+W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Eastbay Institute,,4,no,no,Synthetic demo byline
+W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,M. Ellis,,Eastbay Institute,,5,no,no,Synthetic demo byline
+W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Northlake University,,1,shared,no,Synthetic demo byline
+W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Eastbay Institute,,1,shared,no,Synthetic demo byline
+W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,2,shared,no,Synthetic demo byline
+W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,S. Cui,,Eastbay Institute,,3,no,sole,Synthetic demo byline
+W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Eastbay Institute,,4,no,no,Synthetic demo byline
+W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Eastbay Institute,,1,sole,no,Synthetic demo byline
+W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,2,no,sole,Synthetic demo byline
+W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Northlake University,,3,no,no,Synthetic demo byline
+W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,M. Ellis,,Eastbay Institute,,4,no,no,Synthetic demo byline
+W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,S. Cui,,Eastbay Institute,,1,sole,no,Synthetic demo byline
+W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,K. Alden,,Eastbay Institute,,2,no,shared,Synthetic demo byline
+W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,M. Ellis,,Eastbay Institute,,3,no,shared,Synthetic demo byline
+W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,W. Zhang,,Northlake University,,4,no,no,Synthetic demo byline
+W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,T. Deng,,Riverfield Lab,,1,sole,no,Synthetic demo byline
+W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,T. Deng,,Southridge University,,1,sole,no,Synthetic demo byline
+W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Northlake University,,2,no,shared,Synthetic demo byline
+W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Riverfield Lab,,2,no,shared,Synthetic demo byline
+W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,U. Fang,,Riverfield Lab,,3,no,shared,Synthetic demo byline
+W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,V. Gao,,Southridge University,,4,no,no,Synthetic demo byline
+W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Northlake University,,1,sole,no,Synthetic demo byline
+W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Riverfield Lab,,1,sole,no,Synthetic demo byline
+W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,T. Deng,,Riverfield Lab,,2,no,no,Synthetic demo byline
+W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,V. Gao,,Southridge University,,3,no,sole,Synthetic demo byline
+W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,U. Fang,,Riverfield Lab,,1,shared,no,Synthetic demo byline
+W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,V. Gao,,Southridge University,,2,shared,no,Synthetic demo byline
+W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,W. Zhang,,Northlake University,,3,no,no,Synthetic demo byline
+W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,1,sole,no,Synthetic demo byline
+W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Highland Institute,,1,sole,no,Synthetic demo byline
+W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,X. Hu,,Highland Institute,,2,no,sole,Synthetic demo byline
+W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,Y. Jiang,,Coastal Lab,,3,no,no,Synthetic demo byline
+W09,,Target scattering II,2021,Journal of Optical Sensing,1111-1111,Q1,Y. Jiang,,Coastal Lab,,1,sole,no,Synthetic demo byline
+W09,,Target scattering II,2021,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,2,no,no,Synthetic demo byline
+W09,,Target scattering II,2021,Journal of Optical Sensing,1111-1111,Q1,X. Hu,,Highland Institute,,3,no,sole,Synthetic demo byline
+W10,,Target scattering III,2022,Frontiers in Spectral Imaging,3333-3333,Q1,X. Hu,,Highland Institute,,1,sole,no,Synthetic demo byline
+W10,,Target scattering III,2022,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Northlake University,,2,no,no,Synthetic demo byline
+W11,,Multi-view spectral imaging,2022,General Science Reports,4444-4444,Q3,T. Deng,,Riverfield Lab,,1,sole,no,Synthetic demo byline
+W11,,Multi-view spectral imaging,2022,General Science Reports,4444-4444,Q3,U. Fang,,Riverfield Lab,,2,no,no,Synthetic demo byline
+W11,,Multi-view spectral imaging,2022,General Science Reports,4444-4444,Q3,W. Zhang,,Northlake University,,3,no,sole,Synthetic demo byline
+W12,,Waveform calibration across sensors,2021,Remote Measurement Letters,2222-2222,Q2,M. Ellis,,Eastbay Institute,,1,sole,no,Synthetic demo byline
+W12,,Waveform calibration across sensors,2021,Remote Measurement Letters,2222-2222,Q2,R. Bai,,Northlake University,,2,no,no,Synthetic demo byline
+W12,,Waveform calibration across sensors,2021,Remote Measurement Letters,2222-2222,Q2,W. Zhang,,Northlake University,,3,no,sole,Synthetic demo byline

@@ -1,18 +1,18 @@
 # 在 GitHub 发布 Scholar Trails
 
-将 `README.md`、`LICENSE`、`docs/`、`skills/` 和 `.gitignore` 提交到仓库，访客就能在 GitHub 上阅读说明和浏览源码。将 `scholar-trails.zip` 上传到 **Releases** 作为安装包。
+将 `README.md`、`LICENSE`、`assets/`、`docs/`、`skills/` 和 `.gitignore` 提交到仓库，访客就能在 GitHub 上阅读说明和浏览源码。将 `scholar-trails.zip` 上传到 **Releases** 作为安装包。
 
 ## 创建仓库
 
 **Repository name** 填 `scholar-trails`。公开分享时选择 **Public**。**Description** 可以直接粘贴下面这句。
 
-> Follow the bylines to see where researchers have worked, what they’ve published, and who they work with. Five Agent Skills for scholarly discovery.
+> Follow the bylines to see where researchers have worked, what they’ve published, and who they work with. Four Agent Skills for scholarly discovery.
 
 ## 方式一 · 网页上传
 
 1. 解压发布包，进入新建仓库的首页。
-2. 通过 **Add file → Upload files** 上传解压后的 `README.md`、`LICENSE`、`docs/`、`skills/` 和 `.gitignore`，保持目录层级。空仓库也可以通过 **uploading an existing file** 进入上传页面。
-3. 检查上传清单后提交。仓库首页应显示 Scholar Trails｜学缘寻踪的 README，点开 `skills/` 能看到五个入口。[GitHub 网页上传说明](https://docs.github.com/en/repositories/working-with-files/managing-files/adding-a-file-to-a-repository)
+2. 通过 **Add file → Upload files** 上传解压后的 `README.md`、`LICENSE`、`assets/`、`docs/`、`skills/` 和 `.gitignore`，保持目录层级。空仓库也可以通过 **uploading an existing file** 进入上传页面。
+3. 检查上传清单后提交。仓库首页应显示 Scholar Trails｜学缘寻踪的 README，点开 `skills/` 能看到四个入口。[GitHub 网页上传说明](https://docs.github.com/en/repositories/working-with-files/managing-files/adding-a-file-to-a-repository)
 
 ## 方式二 · Git 推送
 
@@ -20,7 +20,7 @@
 
 ```bash
 git init -b main
-git add -- README.md LICENSE docs skills .gitignore
+git add -- README.md LICENSE assets docs skills .gitignore
 git diff --cached --name-only
 git commit -m "Publish Scholar Trails"
 git remote add origin https://github.com/OWNER/scholar-trails.git

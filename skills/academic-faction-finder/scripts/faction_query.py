@@ -66,10 +66,10 @@ OA_BASE = "https://api.openalex.org"
 
 LOG = logging.getLogger("faction")
 PALETTE = [
-    "#3b7dd8", "#e08b3c", "#3a9d7e", "#b45fa8", "#d2b53c",
-    "#c65b5b", "#6a7fd0", "#7a9b45", "#b07a4a", "#8a8f98",
+    "#56d6b1", "#f5bd6b", "#a5b8fa", "#ec9bc0", "#d5d77c",
+    "#f39383", "#84c9e6", "#b0d792", "#d2aa92", "#b9b4dc",
 ]
-ISOLATED_COLOR = "#a8adb5"
+ISOLATED_COLOR = "#a5b5b1"
 
 
 # --------------------------------------------------------------------------
@@ -1476,7 +1476,8 @@ def write_db(path, args, run_id, works, persons, person_orgs, work_persons,
     con.close()
 
 
-def build_html(path, nodes, edges, persons, cid, memberships, degree, args, faction_rows):
+def build_html(path, nodes, edges, persons, cid, memberships, degree, args, faction_rows,
+               *, seeds, paper_count):
     palette_size = len(PALETTE)
     node_rows = []
     for pid in sorted(nodes):
@@ -1494,15 +1495,17 @@ def build_html(path, nodes, edges, persons, cid, memberships, degree, args, fact
                        for g, r in memberships[pid].items()],
             "color": ISOLATED_COLOR if c <= 0 else PALETTE[(c - 1) % palette_size],
             "deg": degree.get(pid, 0),
-            "role": "",
+            "seed": pid in seeds,
         })
     link_rows = [{"src": e["src"], "dst": e["dst"], "n": e["n_papers"], "w": graph_weight(e, args)}
                  for e in edges if e["src"] in nodes and e["dst"] in nodes]
     payload = {
         "nodes": node_rows, "edges": link_rows,
+        "demo": args.source == "demo",
+        "seed_names": list(dict.fromkeys(persons[pid]["display_name"] for pid in seeds)),
+        "paper_count": paper_count, "author_count": len(persons),
         "min_collab": args.min_collab,
         "edge_weight": getattr(args, "edge_weight", "role"),
-        "edges_shown": len(link_rows), "max_edges": args.max_edges,
         "factions": [{"id": r["faction_id"], "size": r["size"],
                       "color": PALETTE[(r["faction_id"] - 1) % palette_size],
                       "collab": r["internal_collab_times"]}
@@ -1517,58 +1520,142 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>学术派系合作网络</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>合作网络｜Scholar Trails</title>
 <style>
-:root { color-scheme: light; }
-body { margin:0; background:#f7f8fa; color:#24272e; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
-header { padding:18px 24px 12px; border-bottom:1px solid #e3e6ea; background:#fff; }
-h1 { font-size:16px; font-weight:500; margin:0 0 6px; }
-.sub { font-size:12px; color:#6b7280; }
-.bar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; padding:12px 24px; background:#fff; border-bottom:1px solid #e3e6ea; font-size:12px; }
-.stat { background:#f1f4f8; border-radius:6px; padding:5px 10px; }
-input[type=text] { padding:6px 10px; border:1px solid #d5dae1; border-radius:6px; font-size:12px; width:190px; }
-.wrap { display:flex; gap:16px; padding:16px 24px 24px; align-items:flex-start; }
-svg { flex:1; background:#fff; border:1px solid #e3e6ea; border-radius:10px; min-width:520px; }
-aside { width:220px; background:#fff; border:1px solid #e3e6ea; border-radius:10px; padding:14px; font-size:12px; }
-aside h2 { font-size:13px; font-weight:500; margin:0 0 10px; }
-.legend { display:flex; align-items:center; gap:8px; margin:6px 0; }
-.dot { width:11px; height:11px; border-radius:50%; flex:none; }
-.dim { opacity:.18; }
-.hit circle:first-child { stroke:#24272e; stroke-width:2.5; }
-#tip { position:absolute; display:none; pointer-events:none; background:#fff; border:1px solid #d5dae1;
-       border-radius:8px; padding:8px 10px; font-size:12px; box-shadow:0 2px 8px rgba(0,0,0,.08); max-width:260px; }
-.node { cursor:grab; } .node text { font-size:10px; fill:#4b5058; pointer-events:none; }
-.hint { color:#8a9099; line-height:1.6; margin-top:12px; }
+:root {
+  color-scheme: light;
+  --ink: #152c25;
+  --muted: #52665e;
+  --paper: #f3f1e7;
+  --panel: #fffcf4;
+  --border: #d6ddce;
+  --plot: #102a24;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink);
+       font: 14px/1.5 "Instrument Sans", "Microsoft YaHei", sans-serif; }
+main { max-width: 1344px; margin: auto; padding: 36px 42px 42px; }
+.brand { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+         padding: 0 0 15px; border-bottom: 1px solid var(--border); color: #265545; }
+.brand-name { font-weight: 700; letter-spacing: .055em; }
+.brand-name span { margin-left: 9px; font-size: 12px; }
+.demo-label { padding: 4px 10px; border-radius: 20px; background: #e1eddd;
+              color: #285540; font-size: 12px; font-weight: 700; }
+header { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap;
+         gap: 20px 32px; padding: 26px 0 22px; }
+h1 { margin: 0; font: 700 clamp(32px, 5vw, 46px)/1.2 "Noto Serif CJK SC", "SimSun", serif;
+     letter-spacing: -.03em; }
+#subject { margin: 9px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.stats { display: flex; gap: 0; margin: 0; align-items: end; }
+.stats div { display: flex; flex-direction: column; min-width: 98px;
+             border-left: 1px solid #ccd6c9; padding: 0 17px 1px; }
+.stats dt { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.stats dd { order: -1; margin: 0 0 4px; font: 700 32px/1 "Instrument Serif", Georgia, serif;
+            font-variant-numeric: lining-nums tabular-nums; }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr) 236px; gap: 16px; align-items: start; }
+.plot, aside { min-width: 0; background: var(--panel); border: 1px solid var(--border);
+               border-radius: 14px; overflow: hidden; }
+.toolbar { padding: 11px 13px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+input, button { color: var(--ink); background: #fffef9; border: 1px solid #cdd9cc;
+                border-radius: 7px; font: inherit; padding: 6px 10px; }
+input { width: min(100%, 225px); }
+input::placeholder { color: #576961; }
+button { min-width: 34px; cursor: pointer; }
+button:hover { background: #e5efe3; }
+:focus-visible { outline: 2px solid #267957; outline-offset: 2px; }
+.controls { display: flex; gap: 5px; }
+#svg { display: block; width: 100%; height: auto; touch-action: none;
+       background-color: var(--plot);
+       background-image: radial-gradient(circle, #91b6a538 1px, transparent 1.3px),
+                         radial-gradient(ellipse at 45% 30%, #244d40, transparent 78%);
+       background-size: 20px 20px, 100% 100%; }
+.plot-note { margin: 0; padding: 9px 13px; color: var(--muted); font-size: 12px; }
+aside { padding: 17px 15px; }
+aside h2 { margin: 0 0 10px; font-size: 16px; }
+.legend { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0;
+          border-top: 1px solid #e0e5d9; }
+.legend strong, .legend small { display: block; }
+.legend small { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.dot { width: 12px; height: 12px; margin-top: 4px; border-radius: 50%; flex: none;
+       border: 1px solid #102a2455; }
+.hint { margin: 9px 0 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.node { cursor: grab; }
+.node:active { cursor: grabbing; }
+.node text { fill: #eef7ed; stroke: var(--plot); stroke-width: 3px; paint-order: stroke;
+             font-size: 14px; font-weight: 650; text-anchor: middle; pointer-events: none; }
+.node.seed text { fill: #fff; font-weight: 750; }
+.dense .node text { visibility: hidden; }
+.dense .node:is(.seed, .hit, :hover) text { visibility: visible; }
+.node.hit .marker { stroke: #fff; stroke-width: 3px; }
+.dim { opacity: .2; }
+#tip { position: fixed; z-index: 1; pointer-events: none; padding: 10px 12px;
+       background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+       max-width: min(290px, calc(100vw - 20px)); box-shadow: 0 5px 20px #102a2424;
+       overflow-wrap: anywhere; font-size: 12px; }
+@media (max-width: 760px) {
+  main { padding: 20px 16px 24px; }
+  .wrap { grid-template-columns: minmax(0, 1fr); }
+  .stats div { min-width: 76px; padding: 0 12px; }
+  .stats dd { font-size: 26px; }
+}
 </style>
 </head>
 <body>
-<header>
-  <h1>学术派系合作网络</h1>
-  <div class="sub">节点表示作者，颜色表示合作社区。连线粗细反映当前权重。</div>
-</header>
-<div class="bar">
-  <span class="stat" id="s1"></span><span class="stat" id="s2"></span>
-  <span class="stat" id="s3"></span><span class="stat" id="s4"></span>
-  <input type="text" id="q" placeholder="输入姓名高亮">
-  <span class="sub">滚轮缩放 · 拖拽节点 · 悬停查看</span>
-</div>
-<div class="wrap">
-  <svg id="svg" viewBox="0 0 1000 680" preserveAspectRatio="xMidYMid meet"></svg>
-  <aside><h2>合作社区</h2><div id="legend"></div>
-    <div class="hint">节点外圈显示多重社区归属，灰色表示未归入社区。悬停可查看各组的合著证据与发表年份。</div>
-  </aside>
-</div>
-<div id="tip"></div>
+<main>
+  <div class="brand">
+    <div class="brand-name">Scholar Trails <span>学缘寻踪</span></div>
+    <span class="demo-label" id="demo-label" hidden>虚构数据演示</span>
+  </div>
+  <header>
+    <div><h1>合作网络</h1><p id="subject"></p></div>
+    <dl class="stats">
+      <div><dt>范围内论文</dt><dd id="s1"></dd></div>
+      <div><dt>范围内作者</dt><dd id="s2"></dd></div>
+      <div><dt>合作社区</dt><dd id="s3"></dd></div>
+    </dl>
+  </header>
+  <div class="wrap">
+    <section class="plot" aria-label="合著关系图">
+      <div class="toolbar">
+        <input type="search" id="q" aria-label="搜索姓名或单位" placeholder="搜索姓名或单位">
+        <div class="controls">
+          <button type="button" id="zoom-out" aria-label="缩小">−</button>
+          <button type="button" id="zoom-in" aria-label="放大">+</button>
+          <button type="button" id="reset">重置视图</button>
+        </div>
+      </div>
+      <svg id="svg" viewBox="0 0 900 510" role="img" aria-label="作者及其合著关系"></svg>
+      <p class="plot-note" id="s4"></p>
+    </section>
+    <aside>
+      <h2>合作社区</h2>
+      <div id="legend"></div>
+      <p class="hint">颜色表示社区，灰色表示未分组。白色外圈标记检索对象，多色外圈表示同时属于多个社区。</p>
+      <p class="hint">连线越粗，合作权重越高。悬停作者可查看单位和所属社区。</p>
+    </aside>
+  </div>
+</main>
+<div id="tip" hidden></div>
 <script>
 const D = __DATA__;
 const N = D.nodes, E = D.edges;
 const escapeText = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-const W = 1000, H = 680, CX = W/2, CY = H/2;
-const idx = {}; N.forEach((n,i)=>{ idx[n.id]=i; });
-N.forEach((n,i)=>{ const a = 2*Math.PI*i/Math.max(1,N.length);
-  n.x = CX + 210*Math.cos(a) + ((i*37)%23-11);
-  n.y = CY + 210*Math.sin(a) + ((i*53)%23-11);
-  n.vx=0; n.vy=0; });
+const W = 900, H = 510, CX = W/2, CY = H/2;
+const idx = Object.fromEntries(N.map((n,i)=>[n.id,i]));
+const spaced = N.length <= 48 && D.factions.length >= 2 && D.factions.length <= 6;
+const anchors = new Map(D.factions.map((f,i)=>{
+  const a = -Math.PI/2 - Math.PI/D.factions.length + 2*Math.PI*i/D.factions.length;
+  return [f.id, [CX + W*.26*Math.cos(a), CY + H*.27*Math.sin(a)]];
+}));
+N.forEach((n,i)=>{
+  const a = 2*Math.PI*i/Math.max(1,N.length);
+  n.anchor = spaced ? (anchors.get(n.c) || [W*.83,H*.79]) : [CX,CY];
+  const spread = spaced ? 44 : H*.39;
+  n.x = n.anchor[0] + spread*Math.cos(a) + ((i*37)%23-11);
+  n.y = n.anchor[1] + spread*Math.sin(a) + ((i*53)%23-11);
+  n.vx=0; n.vy=0;
+});
 const L = E.filter(e=>idx[e.src]!==undefined && idx[e.dst]!==undefined)
            .map(e=>({a:idx[e.src], b:idx[e.dst], n:e.n, w:e.w}));
 const STEPS = Math.max(60, Math.min(320, Math.floor(3000000/Math.max(1,N.length*N.length/2))));
@@ -1591,60 +1678,111 @@ for (let step=0; step<STEPS; step++) {
     N.forEach(n=>{ const c=cen[n.c]; if(c){ n.vx+=(c.x-n.x)*0.006; n.vy+=(c.y-n.y)*0.006; } });
   }
   N.forEach(n=>{
-    n.vx+=(CX-n.x)*0.0025; n.vy+=(CY-n.y)*0.0025;
+    const pull = spaced ? 0.014 : 0.0025;
+    n.vx+=(n.anchor[0]-n.x)*pull; n.vy+=(n.anchor[1]-n.y)*pull;
     n.vx*=0.82; n.vy*=0.82;
     n.x+=Math.max(-14,Math.min(14,n.vx)); n.y+=Math.max(-14,Math.min(14,n.vy));
-    n.x=Math.max(28,Math.min(W-28,n.x)); n.y=Math.max(28,Math.min(H-28,n.y));
+    n.x=Math.max(48,Math.min(W-48,n.x)); n.y=Math.max(28,Math.min(H-42,n.y));
   });
 }
 const svg=document.getElementById('svg');
+svg.classList.toggle('dense', N.length > 48);
 let out='<g id="vp">';
 for(const l of L){ const A=N[l.a],B=N[l.b];
-  const sw=Math.min(1+Math.log2(l.w+1)*1.5,8);
-  out+='<line x1="'+A.x+'" y1="'+A.y+'" x2="'+B.x+'" y2="'+B.y+'" stroke="#c3c9d2" stroke-width="'+sw+'" opacity="0.55"><title>合著 '+l.n+' 篇 · 当前边权 '+l.w+'</title></line>'; }
+  const color=A.c>0 && A.c===B.c ? A.color : '#9aada5';
+  const sw=Math.min(1+Math.log2(l.w+1)*1.25,7);
+  out+='<line x1="'+A.x+'" y1="'+A.y+'" x2="'+B.x+'" y2="'+B.y+'" stroke="'+color+'" stroke-width="'+sw+'" opacity=".57" stroke-linecap="round"><title>合著 '+l.n+' 篇 · 合作权重 '+l.w+'</title></line>'; }
 for(const n of N){
-  const r=4+Math.sqrt(n.deg)*2.1;
-  out+='<g class="node" data-id="'+n.id+'" transform="translate('+n.x+','+n.y+')"><circle r="'+r+'" fill="'+n.color+'" stroke="#fff" stroke-width="1.6"/>';
+  const r=6+Math.min(Math.sqrt(n.deg)*2.2,10);
+  out+='<g class="node'+(n.seed?' seed':'')+'" data-id="'+n.id+'" transform="translate('+n.x+','+n.y+')"><circle class="marker" r="'+r+'" fill="'+n.color+'" stroke="#102a24" stroke-width="1.8"/>';
   if(n.groups.length>1){
-    n.groups.forEach((g,i)=>{out+='<circle r="'+(r+2)+'" fill="none" stroke="'+g.color+'" stroke-width="3" pathLength="'+n.groups.length+'" stroke-dasharray=".9 '+(n.groups.length-.9)+'" stroke-dashoffset="'+(-i)+'" pointer-events="none"/>';});
+    n.groups.forEach((g,i)=>{out+='<circle r="'+(r+2)+'" fill="none" stroke="'+g.color+'" stroke-width="2.5" pathLength="'+n.groups.length+'" stroke-dasharray=".88 '+(n.groups.length-.88)+'" stroke-dashoffset="'+(-i)+'" pointer-events="none"/>';});
   }
-  out+='<text x="'+(r+5)+'" y="3">'+escapeText(n.name)+'</text></g>';
+  if(n.seed) out+='<circle r="'+(r+(n.groups.length>1?6:3))+'" fill="none" stroke="#fff" stroke-width="1.5" pointer-events="none"/>';
+  out+='<text y="'+(r+20)+'">'+escapeText(n.name)+'</text></g>';
 }
 out+='</g>';
 svg.innerHTML=out;
-document.getElementById('s1').textContent='作者 '+N.length;
-document.getElementById('s2').textContent='合作连线 '+L.length;
-document.getElementById('s3').textContent='派系 '+D.factions.length;
-document.getElementById('s4').textContent=(D.edge_weight==='role'?'检索对象与合作者角色加权':'按篇计权')+' · 合著阈值 ≥'+D.min_collab+' 篇 · 显示 '+D.edges_shown+' 条边'+(D.edges_shown>=D.max_edges?'（已截断 Top '+D.max_edges+'）':'');
+document.getElementById('demo-label').hidden=!D.demo;
+document.getElementById('subject').textContent=D.seed_names.length ? '检索对象 · '+D.seed_names.join('、') : '当前范围内的合著关系';
+document.getElementById('s1').textContent=D.paper_count;
+document.getElementById('s2').textContent=D.author_count;
+document.getElementById('s3').textContent=D.factions.length;
+const weighting=D.edge_weight==='role'&&D.seed_names.length ? '检索对象按署名角色加权' : '按共同论文篇数计权';
+document.getElementById('s4').textContent='图中 '+N.length+' 位作者 · '+L.length+' 条连线 · 合著阈值 '+D.min_collab+' 篇 · '+weighting;
 document.getElementById('legend').innerHTML = D.factions.map(f=>
-  '<div class="legend"><span class="dot" style="background:'+f.color+'"></span>派系 '+f.id+' · '+f.size+' 人 · '+f.collab+' 次</div>').join('')
-  || '<div class="hint">未检出社区，请降低 --min-collab 或扩大范围。</div>';
+  '<div class="legend"><span class="dot" style="background:'+f.color+'"></span><div><strong>社区 '+f.id+'</strong><small>'+f.size+' 位作者 · '+f.collab+' 次组内合著</small></div></div>').join('')
+  || '<p class="hint">当前合著阈值下未识别到合作社区。</p>';
 let scale=1, tx=0, ty=0;
 const vp=document.getElementById('vp');
-function apply(){ vp.setAttribute('transform','translate('+tx+','+ty+') scale('+scale+')'); }
-svg.addEventListener('wheel',e=>{ e.preventDefault(); const k=e.deltaY<0?1.1:0.9;
-  const ns=Math.max(0.4,Math.min(4,scale*k)); tx=e.offsetX-(e.offsetX-tx)*ns/scale;
-  ty=e.offsetY-(e.offsetY-ty)*ns/scale; scale=ns; apply(); },{passive:false});
-let drag=null;
-svg.addEventListener('mousedown',e=>{ const g=e.target.closest('.node'); if(!g) return;
-  drag={g:g,n:N[Array.from(svg.querySelectorAll('.node')).indexOf(g)],ox:e.offsetX,oy:e.offsetY}; });
-svg.addEventListener('mousemove',e=>{ if(!drag) return;
-  const n=drag.n; n.x=e.offsetX/scale-tx/scale; n.y=e.offsetY/scale-ty/scale;
-  drag.g.setAttribute('transform','translate('+n.x+','+n.y+')'); });
-svg.addEventListener('mouseup',()=>{drag=null;});
-svg.addEventListener('mouseleave',()=>{drag=null;});
+const nodeElements=vp.querySelectorAll('.node');
+const edgeElements=vp.querySelectorAll('line');
 const tip=document.getElementById('tip');
-svg.addEventListener('mousemove',e=>{ if(drag) return; const g=e.target.closest('.node');
-  if(!g){ tip.style.display='none'; return; }
-  const n=N[Array.from(svg.querySelectorAll('.node')).indexOf(g)];
+function apply(){ vp.setAttribute('transform','translate('+tx+','+ty+') scale('+scale+')'); }
+function svgPoint(e){
+  return new DOMPoint(e.clientX,e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+}
+function zoom(factor,x,y){
+  const next=Math.max(.4,Math.min(4,scale*factor));
+  tx=x-(x-tx)*next/scale;
+  ty=y-(y-ty)*next/scale;
+  scale=next;
+  apply();
+  tip.hidden=true;
+}
+svg.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const p=svgPoint(e);
+  zoom(e.deltaY<0?1.12:1/1.12,p.x,p.y);
+},{passive:false});
+document.getElementById('zoom-out').onclick=()=>zoom(1/1.2,CX,CY);
+document.getElementById('zoom-in').onclick=()=>zoom(1.2,CX,CY);
+document.getElementById('reset').onclick=()=>{
+  scale=1; tx=0; ty=0; apply(); tip.hidden=true;
+};
+let drag=null;
+svg.addEventListener('pointerdown',e=>{
+  const g=e.target.closest('.node');
+  if(!g || e.button!==0) return;
+  const i=idx[g.dataset.id], n=N[i], p=svgPoint(e);
+  const links=[];
+  L.forEach((l,j)=>{
+    if(l.a===i || l.b===i) links.push([edgeElements[j],l.a===i?'1':'2']);
+  });
+  drag={g,n,links,pointer:e.pointerId,ox:(p.x-tx)/scale-n.x,oy:(p.y-ty)/scale-n.y};
+  tip.hidden=true;
+  svg.setPointerCapture(e.pointerId);
+});
+svg.addEventListener('pointermove',e=>{
+  if(drag){
+    if(e.pointerId!==drag.pointer) return;
+    const p=svgPoint(e), {n,g,links,ox,oy}=drag;
+    n.x=(p.x-tx)/scale-ox;
+    n.y=(p.y-ty)/scale-oy;
+    g.setAttribute('transform','translate('+n.x+','+n.y+')');
+    links.forEach(([line,end])=>{
+      line.setAttribute('x'+end,n.x); line.setAttribute('y'+end,n.y);
+    });
+    return;
+  }
+  const g=e.target.closest('.node');
+  if(!g){ tip.hidden=true; return; }
+  const n=N[idx[g.dataset.id]];
   const groups=n.groups.map(g=>'社区 '+g.id+' · '+g.papers+' 篇'+(g.first?' · '+g.first+(g.last!==g.first?'–'+g.last:''):'')).join('<br>');
-  tip.innerHTML='<b>'+escapeText(n.name)+'</b><br>署名单位：'+escapeText(n.orgs)+'<br>'+(groups||'未归入社区')+'<br>图内合作边权合计：'+n.deg;
-  tip.style.display='block'; tip.style.left=(e.pageX+14)+'px'; tip.style.top=(e.pageY+14)+'px'; });
+  tip.innerHTML='<b>'+escapeText(n.name)+'</b><br>署名单位：'+escapeText(n.orgs)+'<br>'+(groups||'未归入社区')+'<br>图内合作权重合计：'+n.deg;
+  tip.hidden=false;
+  tip.style.left=Math.max(8,Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8))+'px';
+  tip.style.top=Math.max(8,Math.min(e.clientY+14,innerHeight-tip.offsetHeight-8))+'px';
+});
+svg.addEventListener('lostpointercapture',()=>{drag=null;});
+svg.addEventListener('pointerleave',()=>{tip.hidden=true;});
 document.getElementById('q').addEventListener('input',e=>{
   const q=e.target.value.trim().toLowerCase();
-  svg.querySelectorAll('.node').forEach(g=>{ const n=N[Array.from(svg.querySelectorAll('.node')).indexOf(g)];
-    const ok=!q||n.name.toLowerCase().includes(q)||n.orgs.toLowerCase().includes(q);
-    g.classList.toggle('hit',!!q&&ok); g.classList.toggle('dim',!!q&&!ok); });
+  const matches=N.map(n=>!q||n.name.toLowerCase().includes(q)||n.orgs.toLowerCase().includes(q));
+  nodeElements.forEach((g,i)=>{
+    g.classList.toggle('hit',!!q&&matches[i]); g.classList.toggle('dim',!matches[i]);
+  });
+  edgeElements.forEach((line,i)=>line.classList.toggle('dim',!matches[L[i].a]&&!matches[L[i].b]));
 });
 </script>
 </body>
@@ -1785,7 +1923,7 @@ def export_all(out: Path, args, run_id, works, persons, person_orgs, work_person
             LOG.warning("Visualisation truncated to top %d edges by collaboration "
                         "count (raise --max-edges if needed)", args.max_edges)
         build_html(out / "network.html", viz_nodes, viz_edges, persons, cid, memberships,
-                   degree, args, factions)
+                   degree, args, factions, seeds=seeds, paper_count=len(works))
 
     write_csv(out / "person_affiliations.csv", [
         {**rec, "name": name(pid), "orcid": persons[pid]["orcid"],
