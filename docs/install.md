@@ -1,11 +1,11 @@
 # 安装 Scholar Trails｜学缘寻踪
 
-四个 Skill 共用主 Skill 中的工作流、脚本和数据模板。安装整套时，让四个 `academic-*` 目录保持同级。
+各 Skill 共用主 Skill 中的工作流、脚本和数据模板。安装整套时，让 `academic-*` 目录保持同级。
 
 ## 下载后手动安装
 
 1. 在仓库的 **Releases** 下载 `scholar-trails.zip` 并解压。也可以从 **Code → Download ZIP** 下载仓库源码。
-2. 把解压后 `skills/` 中的四个目录复制到下表对应位置。项目路径从目标项目根目录算起，`~` 代表用户主目录。
+2. 把解压后 `skills/` 中的目录复制到下表对应位置。项目路径从目标项目根目录算起，`~` 代表用户主目录。
 3. 打开目标项目并开启新会话。Codex 可用 `$academic-faction-finder`，Claude Code 可用 `/academic-faction-finder`。也可以直接说「查 [单位] [姓名] 的合作团队」。[Codex Skill 文档](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills) · [Claude Code Skill 文档](https://code.claude.com/docs/en/skills#choose-where-skills-load)
 
 | 客户端 | 仅当前项目 | 当前用户的所有项目 |
@@ -17,13 +17,13 @@
 
 ## 从 Git 克隆后安装
 
-把 `OWNER` 换成发布者的 GitHub 用户名或组织名，克隆后按上表复制 `skills/` 里的四个目录。
+把 `OWNER` 换成发布者的 GitHub 用户名或组织名，克隆后按上表复制 `skills/` 里的目录。
 
 ```bash
 git clone https://github.com/OWNER/scholar-trails.git
 ```
 
-以后在克隆目录中运行 `git pull`，再用更新后的四个目录替换已安装的副本。
+以后在克隆目录中运行 `git pull`，再用更新后的目录替换已安装的副本。
 
 ## 用 GitHub CLI 批量安装
 

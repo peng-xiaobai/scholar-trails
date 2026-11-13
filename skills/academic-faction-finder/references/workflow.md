@@ -20,10 +20,11 @@
 | `--from-year` / `--to-year` | — | 发表年下限 / 上限 |
 | `--mode` | `all` | `scope` 全范围 / `seed` 种子邻域 / `all` 两者 |
 | `--hop` | `1` | `seed` 模式的邻域跳数 |
-| `--min-collab` | `2` | 参与派系构图的最小共同署名论文数 |
+| `--min-collab` | `2` | 识别重复合作的最小共同署名篇数。图同时保留检索对象的直接合著连线及已核实的同单位合著连线 |
+| `--community` | `louvain` | 沿用 Louvain，无 networkx 时用加权标签传播。也可指定 `labelprop` |
+| `--org-parents` | — | 带公开来源的下属单位与上级学校映射，用于在社区名补充学校，见 [模板](../assets/org_parents_template.csv) |
+| `--affiliation-gaps` | — | 直接用成果脚本生成的长表建图时，同时传入该次生成的 `affiliation_gaps.csv` |
 | `--edge-weight` | `role` | 默认按检索对象与合作者双方的署名角色计 3、2 或 1 分，`papers` 按实际共同署名篇数计权 |
-| `--community` | `labelprop` | `labelprop` 加权标签传播（零依赖）/ `louvain`（需 networkx） |
-| `--resolution` | `1.0` | Louvain 分辨率 |
 | `--max-works` | `500` | OpenAlex 单次运行最多拉取论文数，控制用量；达到上限会告警并标记 `truncated_by_max_works`，结果不是全量 |
 | `--max-orgs` | `8` | 某人机构数超过该值即 `review_flag=1` |
 | `--orcid-policy` | `warn` | `warn` = ORCID 冲突不否决机构匹配（合并+复核）；`strict` = 冲突即拆人 |
@@ -33,7 +34,7 @@
 | `--no-html` | 关闭 | 跳过交互图生成，适合只取 CSV / SQLite 的大批量运行 |
 | `--api-key` | `OPENALEX_API_KEY` | OpenAlex API key |
 | `--with-titles` | 关闭 | 额外取回 DOI 与题名；默认关闭，只拉作者相关字段 |
-| `--alias-map` | 内置模板 | 用 `from_key,to_key` CSV 补充机构别名，可加 `source` 记录依据 |
+| `--alias-map` | 内置模板 | 用 `from_key,to_key,source` CSV 补充机构别名。已核实的更名可附 `display_name` 指定社区现名 |
 | `--affiliation-history` | — | 已核实的任职、就读或访学履历 CSV，见[机构时间线](#13-机构时间线) |
 | `--ignore-orgs` | 内置模板 | 泛化机构 CSV：`value,note` |
 | `--out` | `./faction_output` | 输出目录 |
@@ -41,17 +42,17 @@
 
 ## 2. 典型命令
 
-离线查看单一作者的合作网络。内置的 12 篇虚构论文均包含同一位作者 W. Zhang。
+离线查看单一作者的合作网络。内置的 12 篇虚构论文均包含同一位作者 示例作者 A。
 
 ```bash
-python scripts/faction_query.py --source demo --author "W. Zhang" \
+python scripts/faction_query.py --source demo --author "示例作者 A" \
   --mode seed --min-collab 2 --out ./faction_output
 ```
 
 按分区 + 年份限定范围：
 
 ```bash
-python scripts/faction_query.py --source demo --author "W. Zhang" \
+python scripts/faction_query.py --source demo --author "示例作者 A" \
   --mode seed --zone Q1 --zone-map assets/zone_map_template.csv --from-year 2019 \
   --out ./faction_output_q1
 ```
@@ -75,7 +76,7 @@ python scripts/faction_query.py --source openalex --author "Author Name" \
 只看某位作者的直接合著者圈：
 
 ```bash
-python scripts/faction_query.py --source demo --author "W. Zhang" \
+python scripts/faction_query.py --source demo --author "示例作者 A" \
   --mode seed --hop 1 --min-collab 1 --out ./out_seed
 ```
 
@@ -92,7 +93,7 @@ python scripts/faction_query.py --source demo --author "W. Zhang" \
 | | `top_pairs` | 派系内合著次数最高的 3 对作者 |
 | | `cross_faction_collab_times` | 该派系成员与其他派系/未归类作者之间的合著次数 |
 | | `edges_kept_by_threshold` | 实际参与构图的边数 |
-| `faction_memberships.csv` | `person_id`, `faction_id`, `is_primary`, `is_base`, `supporting_papers`, `community_partners`, `first_year`, `last_year`, `year_counts`, `affiliations`, `work_ids` | 每人每组一行，标明主组和基础成员身份，记录支撑论文、涉及的基础成员数、发表年份和这些论文的署名单位 |
+| `faction_memberships.csv` | `person_id`, `faction_id`, `is_primary`, `is_base`, `supporting_papers`, `community_partners`, `first_year`, `last_year`, `year_counts`, `affiliations`, `work_ids` | 每人每组一行，标明主组和基础成员身份，记录作者本人的署名单位、支撑论文、发表年份及同篇署名该单位的合作者数 |
 | `faction_cross.csv` | `faction_a`, `faction_b`, `collab_times` | 两端没有共同社区的边，按两端所属社区组合汇总 |
 | `coauthors.csv` | `person_id`, `name`, `affiliations`, `n_affiliations` | 消歧后的作者与其全部历史机构 |
 | | `papers_in_scope`, `n_coauthors`, `total_collab_times` | 范围内论文数、合著者数、合著次数总和 |
@@ -100,20 +101,21 @@ python scripts/faction_query.py --source demo --author "W. Zhang" \
 | `person_affiliations.csv` | `person_id`, `name`, `orcid`, `org_key`, `org_name`, `first_year`, `last_year`, `review_flag` | 每位作者与每个机构一行。年份是观察到该机构署名的首末发表年份 |
 | `affiliation_timeline.csv` | `basis`, `relationship`, `start_date`, `end_date`, `ongoing`, `source`, `observed_first_year`, `observed_last_year`, `later_org` | 每人每个机构阶段的有来源日期或估计范围，含原始署名年份和支撑论文 |
 | `edges.csv` | `src_name`, `dst_name`, `coauthored_papers`, `role_weight`, `year_counts` | 每一对作者的共同署名论文数、角色加权分与逐年分布 |
-| | `kept_by_threshold`, `same_faction` | 是否参与构图、是否属于同一派系 |
+| | `kept_by_threshold`, `same_faction` | 是否参与构图、是否至少有一篇合著中两人在同一社区均有单位署名证据 |
 | `seed_coauthors.csv` | `seed`, `coauthor`, `coauthored_papers`, `coauthor_faction_ids`, `kept_by_threshold` | 种子作者的全部合著者及其全部社区，含只合作一次者 |
 | `merge_log.csv` | `decision`, `evidence`, `detail` | 每次身份判定的依据，用于审计与回滚 |
-| `network.html` | — | 自包含离线交互图，节点底色为主社区，彩色外圈与悬停提示显示多重归属 |
+| `network.html` | — | 自包含离线交互图，可搜姓名和单位、缩放、拖动画布平移。节点底色为主社区，彩色外圈与悬停提示显示多重归属 |
 | `factions.db` | — | SQLite 库，`faction` 为主社区，`faction_membership` 记录每人每组及证据 |
 
 `merge_log.decision` 取值：`orcid_match`（ORCID 命中）、`org_match`（机构交集命中，主规则）、`orcid_conflict_merged`（ORCID 冲突但机构命中，仍合并并标记复核）、`ambiguous`（多个同名候选，取交集最大者并标记复核）、`orcid_conflict`（无机构命中且 ORCID 冲突，新建）、`new_person`（新建）、`unresolved`（无可用机构证据，新建）、`no_org_unique`（双方均无机构且同名候选唯一，合并）。
 
 ## 4. 解读注意
 
-- **先找合作组。** 默认作者分析使用 `seed` 模式，按合著者之间达到阈值的边识别基础社区，避免检索对象把各组连成一个团。用 Louvain，缺依赖时用加权标签传播。相同单位可以有多个组，一个组也可跨单位。编号按基础组规模排序，仅在本次运行内有效。
-- **再判断重叠成员。** 对目标和邻域中的每位作者，逐组检查其与基础成员共同署名的不同论文。至少 `max(2, --min-collab)` 篇且覆盖至少两位基础成员，可加入该组。一次大型合著或单一联系人只能提供候选线索。各组同时基于基础成员判定，避免重叠逐轮扩散。主社区供旧表及图布局使用，基础成员保留原组，其他人按支撑论文数、合作者数取主组。
-- **解释跨机构经历。** 若转单位前后分别与两组有足够合著，就保留两组归属。每组报告支撑论文年份、署名机构和篇数。任职、署名及估计时间按[机构时间线](#13-机构时间线)解读。有明确来源的导师关系另行呈现。
-- **读统计。** 组内合作对至少有一端是本组基础成员，包含低于构图阈值的边。同一合著可支持多个社区的归属，全网作者和论文总数按去重结果读。未归组包括合著证据不足或邻域之外的作者。
+- **社区成员按本人署名确定。** 有两人同篇署名、又有至少一份完整的独立署名记录的具体单位可形成社区。范围内有该单位本人署名记录的作者都可加入，合作次数和权重只用于分析合作强度。作者可同时属于多个有署名记录的社区。
+- **保留院系，检查是否有单独署名。** 按单篇论文判断作者是否只署名该单位。同一作者在其他论文可以署名多个单位。始终与其他单位一起署名的单位保留在对应作者节点的姓名下方和悬停详情里。`--org-parents` 可为社区名补充经核实的上级学校，署名记录按具体单位统计。
+- **核对院系更名和承继。** 发现同校多位已消歧作者在相近时段由旧单位署名换成新单位署名时，搜索学校全名、两个单位全名及「更名」「沿革」「机构调整」。先查校方公告和学院沿革，必要时核对前后学院代码、专业和官方报道。仅当来源支持同一建制更名或明确承继时，将两个名称映射到同一个 `to_key`，记录校方 URL 和 `display_name`。已有不同单位标识时，给旧标识和新标识分别添加 `from_key=id:标识` 的行。作者流动或部分专业划转仅作核查线索。图例用社区现名，单篇论文详情显示发表时的署名。
+- **范围内论文。** 成果表收录已确认归属的去重论文。图页的论文数按有已核实作者位置进入网络的论文统计。连线只由两端均已核实的同篇记录计权。缺失位置见 `affiliation_gaps.csv`，论文归属仍有疑义的候选见对账表。
+- **组内合著。** 每篇论文、每对作者、每个社区最多计一次。计数条件是两人都在该篇署名该社区单位，且都属于该合作社区。三位符合条件的作者合写一篇，形成三对，记三次。共同署名多组时，每组独立统计，全网篇数按论文去重。加权分另计。
 - **署名计权。** 检索对象与合作者双方均为独立一作或独立通讯时计 3 分，双方均有一作或通讯角色且至少一方仅为共同角色时计 2 分，其余计 1 分。每对每篇只计一次。[署名细则](#12-署名角色与权重)
 
 ## 5. 故障排查
@@ -126,7 +128,6 @@ python scripts/faction_query.py --source demo --author "W. Zhang" \
 | OpenAlex HTTP 402 / 429 | 记录该路受限，继续作者档案、Crossref 和对应语种索引；已有已授权 key 时可用于补充 |
 | 作者被拆成两个人 | 主规则要求至少有一个历史机构重合；补 `--alias-map` 映射机构异名，或在 `org_ignored_template.csv` 中移除被排除的机构，必要时用 `--author-id` 指定 |
 | 同名不同人被误并 | 把造成误并的大伞机构加入 `--ignore-orgs`；检查 `merge_log.csv` 的 `evidence` 列 |
-| `--community louvain` 回退 | 未安装 networkx；`pip install networkx>=3.0`，或改用默认 `labelprop` |
 | HTML 图节点过多 | 用 `--max-nodes` 截断，或提高 `--min-collab` 减少弱边 |
 | 结果明显少于期刊全部文章 | 多半命中默认 `--max-works 500` 被截断；查 `run.log` 的 `TRUNCATED` 告警与 `summary.json` 的 `truncated_by_max_works`，调高上限或按年份分批 |
 | 浏览器打开网络图很卡 | 边数过多；提高 `--min-collab`、降低 `--max-nodes` / `--max-edges`，或直接用 `--no-html` 只看 CSV |
@@ -135,8 +136,7 @@ python scripts/faction_query.py --source demo --author "W. Zhang" \
 | 学院 / 系 / 实验室查不到机构 | 二级单位通常没有 OpenAlex 机构 ID；改用 `--affil-search "College of ..."`，并配合 `--org-id <大学ID>` 收紧 |
 | 中文姓名锚定到完全不相关的人 | `/authors` 模糊检索会返回 `Wei-Guo Zhu` 之类结果；脚本已用机构 ID 限定候选并只取精确同名。更稳妥的做法是改用 `--seed-name`，完全不绑作者 ID |
 | 目标作者被拆成多个人 | 多为 ORCID 冲突或机构证据不重合；默认 `warn` 策略已缓解，仍出现时查 `merge_log.csv` 的 `new_person` / `orcid_conflict`，补 `--alias-map` 或用 `--seed-name` 重新跑 |
-| 派系只有一个超大社区 | `labelprop` 在密集合作网络上容易过度合并；改用 `--community louvain`（需 networkx）、提高 `--min-collab` 或缩小检索范围，并对比 `run_id` |
-| 结果里出现同名重复行（如两个 `Hui Zhang`） | 消歧拆成了两个候选但仍各自与种子合著；合计次数通常正确，需按 `merge_log` 判断是否同一人 |
+| 结果里出现同名重复行（如两行都显示为「示例作者 A」） | 消歧拆成了两个候选但仍各自与种子合著；合计次数通常正确，需按 `merge_log` 判断是否同一人 |
 
 ## 6. 规模与耗时实测
 
@@ -166,14 +166,15 @@ OpenAlex 实时检索的耗时估算（每页 100 篇、页间 0.15 s、单请�
 
 ## 7. 核对真实结果
 
-核对原始署名、作者位置、机构和合著次数。检查重点作者是否因中英文异写被拆开，以及同名者是否被误并。报告社区时记录 `run_id`、算法与参数。
+核对原始署名、作者位置、机构和合著次数。检查重点作者是否因中英文异写被拆开，以及同名者是否被误并。报告社区时记录检索范围和署名证据。
 
 ## 8. 多源检索与漏检排查
 
 1. **先读取已有记录。** 复用证据表、参考文献管理器、作者或机构成果导出。把公开简历、历任机构成果目录及本人档案作为独立对账基准。通过已核实论文定位 ORCID、Google Scholar、WoS 或 Scopus 作者档案；同一人有多个档案时逐个核实后合并候选。
 2. **并行检索网页和数据库界面。** 英文查 Google Scholar 公开档案及 `author:"姓名"`、ORCID Works、机构库、出版社和学科索引。有授权时用 WoS 和 Scopus 界面检索并分批导出。中文查知网、万方、维普、国家科技期刊平台、期刊目录和机构库。用中文名、原始英文署名、姓名异写、历任单位和旧合作者分别组合，并查无单位过滤的已核实作者档案。网页分页用来源提供的界面。
 3. **分段处理过宽或截断的结果。** 按职业阶段和年份分段，遇结果上限时缩短时间段或按刊物、会议、合作者分批；交界年份允许重叠，合并后去重。记录每批显示总量、实取量、可访问范围及缺页。早期或无 DOI 的论文可从卷期目录、会议论文集、机构库，以及已核实论文或公开简历的参考文献回查。无单位或无年份的候选走档案或题名路线。
-4. **核验并对账。** 先按 DOI、数据库入藏号或稳定来源记录编号去重。缺编号时用原文题名、年份、卷期页和署名核对，把同一研究的预印本及正式版对应后按既定范围计数。对各来源独有项和独立清单的缺失项逐条核查，对缺口用另一来源补查。只有明确核实的署名归入作者。报告已确认篇数、可核对清单的命中数量及未覆盖来源、时间段或文献类型。
+4. **从新论文反查。** 单独查最新年份的出版商在线先发和卷期目录。用目标的双语姓名分别搭配近期论文的第一作者、通讯作者和新出现的合作者检索，再从这些合作者的公开成果页反查目标。检查完整署名表上的任意位置。用户提供 DOI 或论文链接时，先登记该篇，再沿其共同作者和研究方向查同批及相邻年份成果。目标的署名角色只用于核验和计权。
+5. **登记并关闭已知缺口。** 搜到 DOI、题名或书目编号时先登记来源，再逐篇核实。把公开目录逐条与成果表对齐，也检查一般检索发现的候选，避免条目停在搜索输出里。以 DOI 或稳定记录键去重，无编号时以题名、卷期和完整署名核验后给统一记录键。交付前回查脚本列出的缺失、归属待核和决定冲突。对确实无法核实的条目记录具体原因。独立清单全数对上时，覆盖结论限于该清单。见[论文候选对账](research_outputs.md#论文候选对账)。
 
 ```bash
 python scripts/collect_ris.py --source "Web of Science" --input batch_1.ris --input batch_2.ris --out wos_candidates.csv
@@ -201,21 +202,21 @@ python scripts/collect_pubmed.py --input batch_1.nbib --input batch_2.txt --out 
 
 1. **核实身份。** 从机构主页、个人简历、双语登记或 ORCID 核对全名、曾任机构和至少一篇论文的作者位置。区分实际作者单位、刊物主办方、其他作者单位和招生阶段。报名或初审记录仅作为候选线索。身份尚有歧义时，列出候选及各自的署名证据，缺少能定位到同一人的证据时，只问一项最能区分的线索，如二级单位、方向、导师或已知成果。
 2. **并行收集。** 按上节用核实的 ORCID 和作者档案枚举候选，以每种原始署名和历史机构独立查询。作者 ID 和 ORCID 命中保留为候选，即使论文中没有熟悉的姓名写法。原始署名路线须在同一条署名上匹配完整姓名写法。
-3. **沿旧合作者追查。** 从公开简历、学位论文导师栏、机构主页和已核实成果梳理就读与任职阶段、导师和常见合作者。每个阶段用目标的中英文姓名配合已核实的导师或合作者、历史机构或阶段年份回查，放开当前单位过滤。用双人姓名查学术搜索、中文库、机构成果页和出版社。新确认的署名写法、作者 ID 或遗漏阶段可以启动下一轮，已做过的组合跳过。没有新增可核实的署名锚点或未覆盖的阶段线索时结束追查。
-4. **核实跨机构连续性。** 核对新旧成果的原始署名与位置。目标姓名或已确认异写一致，旧合作者也核实为同一人，并且署名时间和学业或任职轨迹吻合时，可用这组证据归并不同机构的署名。必要时对照论文、机构页和注册记录中的同一公开学术联系方式，只在结果中记录证据来源和匹配理由。若旧合作者仅同名、目标同名者也与其合作、出现 ORCID 冲突或同一论文有两个独立署名，保留待核并查独立来源。在 `identity_source` 保留新旧成果编号、共同作者及履历证据，同一人的已核实署名用同一 `person_id`。师生或指导关系单独列双方、单位、阶段和明确记载该关系的公开来源。共同署名仅作为合作证据，导师关系本身不计论文边权。
+3. **沿旧合作者追查。** 从公开简历、学位论文导师栏、机构主页和已核实成果梳理就读与任职阶段、导师和常见合作者。每个阶段用目标的中英文姓名配合已核实的导师或合作者、历史机构或阶段年份回查，放开当前单位及原单位过滤。即使新论文从未署名旧单位，也查经过身份核实的旧合作者。用双人姓名查学术搜索、中文库、机构成果页和出版社。新确认的署名写法、作者 ID 或遗漏阶段可以启动下一轮，已做过的组合跳过。没有新增可核实的署名锚点或未覆盖的阶段线索时结束追查。
+4. **核实跨机构连续性。** 核对新旧成果的原始署名与位置。目标姓名或已确认异写一致时，优先查多位已核实身份的共同作者，或同一位已核实的合作者在两阶段多次出现的记录。结合研究方向、发表时间和可查履历判断是否为同一人。只有一篇共同署名时，补查独立履历、本人目录或其他署名锚点再确认。必要时对照论文、机构页和注册记录中的同一公开学术联系方式，只在结果中记录证据来源和匹配理由。若旧合作者仅同名、目标同名者也与其合作、出现 ORCID 冲突或同一论文有两个独立署名，保留待核并查独立来源。在 `identity_source` 保留新旧成果编号、共同作者及履历证据，同一人的已核实署名用同一 `person_id`。师生或指导关系单独列双方、单位、阶段和明确记载该关系的公开来源。共同署名仅作为合作证据，导师关系本身不计论文边权。
 5. **补齐独立来源并对账。** 结合机构成果清单、出版社、专业索引和中文数据库补项。按 DOI、PMID 等标识去重，缺标识时核对题名、年份和署名，再统一 `work_id`。每位作者的多条机构行使用同一个 `author_order`。直接运行本地长表流程时，给各阶段核实的署名分别传入 `--seed-work WORK_ID@POSITION`，用 `--reference-works` 与独立的 `work_id,source` 成果清单逐篇对账。已证实但未采集到的成果从独立来源补入。
 
 ```bash
 python scripts/faction_query.py --source local --input combined.csv \
   --seed-name "Demo Author" --name-alias "Demo Author=Author Demo" \
   --seed-work LOCAL_WORK_ID@2 --reference-works known.csv \
-  --mode seed --community louvain --out ./out
+  --mode seed --out ./out
 ```
 
 - `--seed-work` 使用长表实际输出的 `work_id` 加上 `@位置`，位置从 1 开始。核实不同任职阶段的署名后可重复指定。统计范围外的已知署名可参与本地归并，合著次数按最终期刊和年份范围统计。
 - `reference_coverage.csv` 区分已纳入（`counted`）、范围外（`outside_scope`）、输入缺失（`missing_from_input`）和归属待核（`unresolved_attribution`）。`summary.json` 的 `reference_coverage` 汇总独立清单的核对状态。逐条处理已知缺失、复核 ORCID 冲突，并记录仍无法查证的年份、文献类型或受限来源。只有查询状态、署名核验和独立清单对账均满足时，才报告已核对来源和范围内的覆盖情况。
 
-使用可选的 `collect_wide.py` 时，以 `--known-work` 提供 `DOI@位置` 或 `OpenAlex论文ID@位置`，用 `--across-affiliations` 放开现单位限制。检查 `*_coverage.json` 的各路线分页状态及 `incomplete_bylines`。姓名过滤可能跨多个署名命中词组，采集器回查完整姓名并补取超过列表接口长度的署名。作者 ID 仍需逐条核验。[署名搜索](https://help.openalex.org/api/searching/) · [OpenAlex 署名字段](https://help.openalex.org/data/authorships/)
+使用可选的 `collect_wide.py` 时，以 `--known-work` 提供 `DOI@位置` 或 `OpenAlex论文ID@位置`，用 `--across-affiliations` 放开现单位限制。检查 `*_coverage.json` 的各路线分页状态及 `incomplete_bylines`。采集器回查完整姓名并补取超过列表接口长度的署名。作者 ID 和单位仍需核验。直接使用 OpenAlex 或导入原始索引导出表时，单位仅用于检索筛选，已确认单位的社区通过核验后的本地证据表生成。[署名搜索](https://help.openalex.org/api/searching/) · [OpenAlex 署名字段](https://help.openalex.org/data/authorships/)
 
 ## 10. 双语搜索与备用源
 
@@ -225,7 +226,7 @@ python scripts/faction_query.py --source local --input combined.csv \
 
 - **中文输入。** 保留汉字，生成无声调拼音、姓在前和姓在后两种顺序。有多个给名音节时，再试连写、分写或连字符。以姓名加单位查询作者主页、出版社署名和 ORCID，补入来源实际使用的英文拼写。多音字或地区拼写先作为检索候选。
 - **拉丁字母输入。** 保留原写法，结合单位全称、已知 DOI 或共同作者定位身份。从同一机构的中英文主页、ORCID 或同篇论文的双语署名反查汉字。用同一 ORCID 或同一篇论文的同一署名位置核对。若仍找不到汉字，继续用已核实的拉丁字母拼写。机构也优先采用官方中英文名和历史名称。
-- **按机构逐人反查。** 论文未列另一语种姓名时，对检索对象和纳入结果的合作者分别用原始署名或候选姓名加机构的中文全称、学院或实验室、研究主题、已核实合作者检索。优先查看机构官网、团队成果新闻、会议议程和项目或获奖公示，再查相关中文期刊、专利及公开履历。有多段署名机构时分别查。双语同页、同一 DOI 的相同署名位置、同一 ORCID 可直接对齐。跨页时，用具体成果、项目或多位已核实合作者与机构、时间及方向交叉核对。同一单位和相同拼音仅用于发现候选。将核实的中文名写入 `canonical_name`，原始署名保留在 `raw_name`，来源和对应依据写入 `identity_source`。证据不足时以原署名显示，有实际歧义的候选留待核。
+- **按合著范围反查。** 论文未列另一语种姓名时，先在本批论文找反复出现的已核实合作者，用其姓名、原署名单位、题名和时间定向查双语论文、校方成果或履历。双语同页、同 DOI 同一署名位置或已核实的同一 ORCID 可对齐。没有这些直接锚点时，结合多位反复出现的共同作者、署名单位和研究时段交叉核对，逐一排除重名及不同署名位置的候选。仅共享一个合作圈时保留原始姓名。将核实的中文名写入 `canonical_name`，原始署名保留在 `raw_name`，匹配依据写入 `identity_source`。
 - **区分原始署名与档案。** OpenAlex 采集优先保留论文原始姓名，宽口径表另存档案名和档案 ORCID。当原始姓名与档案名不一致且没有原始 ORCID 时，档案 ORCID 用于回查。同一成果的双语署名用相同成果编号与同一位置对齐，再以已核实的人物编号、ORCID 或已确认且在该数据范围无同名冲突的别名保留两种来源中的机构和角色。姓名拼音、缩写和顺序变体用于召回候选。
 - **归并机构译名。** 先用中文、官方译名和论文常见译法分别检索。若完整专名和地点、上级单位或地址能唯一对应，允许缩写、语序和轻微翻译差异，未查到机构编号时也可登记别名。共享简称、同名分校、附属医院与上级院校有多个可能时，按各自单位保留并核对机构证据。把每个确认写法写入 `from_key,to_key,source` CSV，目标用同一个 `name:<规范名称>` 或已核实的 `id:<机构编号>`。机构映射同时用于本地筛选与归并。某个规范名称只对应一个已观察到的机构编号时，纯名称记录可沿该编号归并。若同一规范名称对应多个编号，保留各编号分别处理。
 - **网页发现。** 分别用中文和英文检索“姓名 + 单位”“姓名 + 论文题名或 DOI”，定位机构主页、出版社、会议和成果清单。Google Scholar 可用 `author:"姓名"` 或完整题名查找，结果回到来源逐篇确认。批量候选优先用来源提供的导出。[Google Scholar 搜索帮助](https://scholar.google.com/intl/en/scholar/help.html)
@@ -249,7 +250,7 @@ OpenAlex 的通讯作者正向标记会随采集结果保存。Crossref 采集�
 
 每篇论文先按每个人的最高已确认角色定档。独立第一或独立通讯为 3，只有共同第一或共同通讯为 2，普通署名或角色待核为 1。至少一端是检索对象时，这对作者取两端较低的一档，每篇只计一次。比如检索对象是独立一作，其与独立通讯作者的边计 3，与仅共同通讯的作者计 2，与普通合著者计 1。检索对象只是普通合著者时，其各条边都计 1。两端都不是检索对象的边每篇计 1。未指定检索对象时，每条边按实际合著篇数计权。
 
-边权跨论文累加，用于分组、连线排序与绘制。最低合著阈值仍按实际篇数，默认 2 篇。`--edge-weight papers` 可切回按篇计权。
+边权跨论文累加，用于连线排序与绘制。默认以共同署名 2 篇识别重复合作，检索对象的直接合著连线及已核实的同单位合著连线从 1 篇起展示。`--edge-weight papers` 可切回按篇计权。
 
 - `authorship_roles.csv` 逐条列出角色、来源及各人的署名档位 `role_score`。两人的实际合作边权见 `edges.csv`。
 - `edges.csv`、`seed_coauthors.csv` 同时给出 `coauthored_papers` 和 `role_weight`。`coauthors.csv` 汇总每位作者的第一、通讯、兼任和普通署名篇数。兼任同时计入第一与通讯两列，另有兼任列可核对重叠。

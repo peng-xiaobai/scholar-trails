@@ -131,7 +131,7 @@ def main(argv=None):
                     help="comma-separated OpenAlex author IDs (candidates / split entities)")
     ap.add_argument("--coauthor-id", action="append", default=[], metavar="AUTHOR_ID",
                     help="verified former coauthor's OpenAlex ID (repeatable); "
-                         "narrow the name search to works with one of these coauthors")
+                         "add a search for works with one of these coauthors")
     ap.add_argument("--orcid", default="", help="independently verified ORCID for a cross-affiliation search")
     ap.add_argument("--known-work", action="append", default=[], metavar="ID@POSITION",
                     help="verified author position on a work identified by OpenAlex ID or DOI (repeatable)")
@@ -227,7 +227,7 @@ def main(argv=None):
               for i in range(0, len(ids), 100)]
     if orcid:
         scopes.append(("orcid", ",".join(["authorships.author.orcid:" + orcid] + base)))
-    if args.across_affiliations and not coauthors:
+    if args.across_affiliations:
         scopes += [("raw_name", ",".join(["raw_author_name.search:" + name] + base))
                    for name in names]
     for i in range(0, len(coauthors), 100):
@@ -325,7 +325,7 @@ def main(argv=None):
                 continue
             profile_orcid = short(au.get("orcid"))
             orcid = openalex_byline_orcid(ash)
-            for oname, oid in openalex_org_pairs(ash):
+            for oname, oid in openalex_org_pairs(ash, signed_only=True):
                 rows.append({"work_id": wid, "doi": w.get("doi") or "",
                              "title": w.get("title") or "", "year": w.get("publication_year") or "",
                              "venue": venue, "issn": "", "zone": "", "author_name": name,

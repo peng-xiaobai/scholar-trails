@@ -1,47 +1,47 @@
 work_id,doi,title,year,venue,issn,zone,author_name,orcid,org_name,org_id,author_order,is_first,is_corresponding,role_source
-W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,1,sole,no,Synthetic demo byline
-W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Northlake University,,2,no,sole,Synthetic demo byline
-W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,S. Cui,,Eastbay Institute,,3,no,no,Synthetic demo byline
-W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Eastbay Institute,,4,no,no,Synthetic demo byline
-W01,,Laser spectral calibration I,2018,Journal of Optical Sensing,1111-1111,Q1,M. Ellis,,Eastbay Institute,,5,no,no,Synthetic demo byline
-W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Northlake University,,1,shared,no,Synthetic demo byline
-W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Eastbay Institute,,1,shared,no,Synthetic demo byline
-W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,2,shared,no,Synthetic demo byline
-W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,S. Cui,,Eastbay Institute,,3,no,sole,Synthetic demo byline
-W02,,Laser spectral calibration II,2019,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Eastbay Institute,,4,no,no,Synthetic demo byline
-W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,K. Alden,,Eastbay Institute,,1,sole,no,Synthetic demo byline
-W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,2,no,sole,Synthetic demo byline
-W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,R. Bai,,Northlake University,,3,no,no,Synthetic demo byline
-W03,,Hyperspectral point clouds,2020,Journal of Optical Sensing,1111-1111,Q1,M. Ellis,,Eastbay Institute,,4,no,no,Synthetic demo byline
-W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,S. Cui,,Eastbay Institute,,1,sole,no,Synthetic demo byline
-W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,K. Alden,,Eastbay Institute,,2,no,shared,Synthetic demo byline
-W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,M. Ellis,,Eastbay Institute,,3,no,shared,Synthetic demo byline
-W04,,Waveform decomposition,2021,Remote Measurement Letters,2222-2222,Q2,W. Zhang,,Northlake University,,4,no,no,Synthetic demo byline
-W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,T. Deng,,Riverfield Lab,,1,sole,no,Synthetic demo byline
-W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,T. Deng,,Southridge University,,1,sole,no,Synthetic demo byline
-W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Northlake University,,2,no,shared,Synthetic demo byline
-W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Riverfield Lab,,2,no,shared,Synthetic demo byline
-W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,U. Fang,,Riverfield Lab,,3,no,shared,Synthetic demo byline
-W05,,Active imaging I,2019,Frontiers in Spectral Imaging,3333-3333,Q1,V. Gao,,Southridge University,,4,no,no,Synthetic demo byline
-W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Northlake University,,1,sole,no,Synthetic demo byline
-W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Riverfield Lab,,1,sole,no,Synthetic demo byline
-W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,T. Deng,,Riverfield Lab,,2,no,no,Synthetic demo byline
-W06,,Active imaging II,2020,Frontiers in Spectral Imaging,3333-3333,Q1,V. Gao,,Southridge University,,3,no,sole,Synthetic demo byline
-W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,U. Fang,,Riverfield Lab,,1,shared,no,Synthetic demo byline
-W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,V. Gao,,Southridge University,,2,shared,no,Synthetic demo byline
-W07,,Active imaging III,2021,Remote Measurement Letters,2222-2222,Q2,W. Zhang,,Northlake University,,3,no,no,Synthetic demo byline
-W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,1,sole,no,Synthetic demo byline
-W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Highland Institute,,1,sole,no,Synthetic demo byline
-W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,X. Hu,,Highland Institute,,2,no,sole,Synthetic demo byline
-W08,,Target scattering I,2020,Journal of Optical Sensing,1111-1111,Q1,Y. Jiang,,Coastal Lab,,3,no,no,Synthetic demo byline
-W09,,Target scattering II,2021,Journal of Optical Sensing,1111-1111,Q1,Y. Jiang,,Coastal Lab,,1,sole,no,Synthetic demo byline
-W09,,Target scattering II,2021,Journal of Optical Sensing,1111-1111,Q1,W. Zhang,,Northlake University,,2,no,no,Synthetic demo byline
-W09,,Target scattering II,2021,Journal of Optical Sensing,1111-1111,Q1,X. Hu,,Highland Institute,,3,no,sole,Synthetic demo byline
-W10,,Target scattering III,2022,Frontiers in Spectral Imaging,3333-3333,Q1,X. Hu,,Highland Institute,,1,sole,no,Synthetic demo byline
-W10,,Target scattering III,2022,Frontiers in Spectral Imaging,3333-3333,Q1,W. Zhang,,Northlake University,,2,no,no,Synthetic demo byline
-W11,,Multi-view spectral imaging,2022,General Science Reports,4444-4444,Q3,T. Deng,,Riverfield Lab,,1,sole,no,Synthetic demo byline
-W11,,Multi-view spectral imaging,2022,General Science Reports,4444-4444,Q3,U. Fang,,Riverfield Lab,,2,no,no,Synthetic demo byline
-W11,,Multi-view spectral imaging,2022,General Science Reports,4444-4444,Q3,W. Zhang,,Northlake University,,3,no,sole,Synthetic demo byline
-W12,,Waveform calibration across sensors,2021,Remote Measurement Letters,2222-2222,Q2,M. Ellis,,Eastbay Institute,,1,sole,no,Synthetic demo byline
-W12,,Waveform calibration across sensors,2021,Remote Measurement Letters,2222-2222,Q2,R. Bai,,Northlake University,,2,no,no,Synthetic demo byline
-W12,,Waveform calibration across sensors,2021,Remote Measurement Letters,2222-2222,Q2,W. Zhang,,Northlake University,,3,no,sole,Synthetic demo byline
+W01,,Estimating vegetation cover from satellite reflectance,2018,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 A,,Northlake University,,1,sole,no,Synthetic demo byline
+W01,,Estimating vegetation cover from satellite reflectance,2018,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 B,,Northlake University,,2,no,sole,Synthetic demo byline
+W01,,Estimating vegetation cover from satellite reflectance,2018,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 C,,Eastbay Institute,,3,no,no,Synthetic demo byline
+W01,,Estimating vegetation cover from satellite reflectance,2018,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 D,,Eastbay Institute,,4,no,no,Synthetic demo byline
+W01,,Estimating vegetation cover from satellite reflectance,2018,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 E,,Eastbay Institute,,5,no,no,Synthetic demo byline
+W02,,Seasonal variation in vegetation cover,2019,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 B,,Northlake University,,1,shared,no,Synthetic demo byline
+W02,,Seasonal variation in vegetation cover,2019,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 B,,Eastbay Institute,,1,shared,no,Synthetic demo byline
+W02,,Seasonal variation in vegetation cover,2019,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 A,,Northlake University,,2,shared,no,Synthetic demo byline
+W02,,Seasonal variation in vegetation cover,2019,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 C,,Eastbay Institute,,3,no,sole,Synthetic demo byline
+W02,,Seasonal variation in vegetation cover,2019,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 D,,Eastbay Institute,,4,no,no,Synthetic demo byline
+W03,,Comparing vegetation cover retrieval models,2020,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 D,,Eastbay Institute,,1,sole,no,Synthetic demo byline
+W03,,Comparing vegetation cover retrieval models,2020,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 A,,Northlake University,,2,no,sole,Synthetic demo byline
+W03,,Comparing vegetation cover retrieval models,2020,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 B,,Northlake University,,3,no,no,Synthetic demo byline
+W03,,Comparing vegetation cover retrieval models,2020,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 E,,Eastbay Institute,,4,no,no,Synthetic demo byline
+W04,,Evaluating uncertainty in vegetation cover maps,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 C,,Eastbay Institute,,1,sole,no,Synthetic demo byline
+W04,,Evaluating uncertainty in vegetation cover maps,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 D,,Eastbay Institute,,2,no,shared,Synthetic demo byline
+W04,,Evaluating uncertainty in vegetation cover maps,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 E,,Eastbay Institute,,3,no,shared,Synthetic demo byline
+W04,,Evaluating uncertainty in vegetation cover maps,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 A,,Northlake University,,4,no,no,Synthetic demo byline
+W05,,Estimating leaf area index in croplands,2019,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 F,,Riverfield Lab,,1,sole,no,Synthetic demo byline
+W05,,Estimating leaf area index in croplands,2019,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 F,,Southridge University,,1,sole,no,Synthetic demo byline
+W05,,Estimating leaf area index in croplands,2019,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 A,,Northlake University,,2,no,shared,Synthetic demo byline
+W05,,Estimating leaf area index in croplands,2019,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 A,,Riverfield Lab,,2,no,shared,Synthetic demo byline
+W05,,Estimating leaf area index in croplands,2019,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 G,,Riverfield Lab,,3,no,shared,Synthetic demo byline
+W05,,Estimating leaf area index in croplands,2019,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 H,,Southridge University,,4,no,no,Synthetic demo byline
+W06,,Validating leaf area index with field observations,2020,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 A,,Northlake University,,1,sole,no,Synthetic demo byline
+W06,,Validating leaf area index with field observations,2020,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 A,,Riverfield Lab,,1,sole,no,Synthetic demo byline
+W06,,Validating leaf area index with field observations,2020,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 F,,Riverfield Lab,,2,no,no,Synthetic demo byline
+W06,,Validating leaf area index with field observations,2020,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 H,,Southridge University,,3,no,sole,Synthetic demo byline
+W07,,Mapping seasonal leaf area index,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 G,,Riverfield Lab,,1,shared,no,Synthetic demo byline
+W07,,Mapping seasonal leaf area index,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 H,,Southridge University,,2,shared,no,Synthetic demo byline
+W07,,Mapping seasonal leaf area index,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 A,,Northlake University,,3,no,no,Synthetic demo byline
+W08,,Estimating soil moisture from surface reflectance,2020,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 A,,Northlake University,,1,sole,no,Synthetic demo byline
+W08,,Estimating soil moisture from surface reflectance,2020,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 A,,Highland Institute,,1,sole,no,Synthetic demo byline
+W08,,Estimating soil moisture from surface reflectance,2020,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 I,,Highland Institute,,2,no,sole,Synthetic demo byline
+W08,,Estimating soil moisture from surface reflectance,2020,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 J,,Coastal Lab,,3,no,no,Synthetic demo byline
+W09,,Assessing soil moisture retrieval across land covers,2021,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 J,,Coastal Lab,,1,sole,no,Synthetic demo byline
+W09,,Assessing soil moisture retrieval across land covers,2021,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 A,,Northlake University,,2,no,no,Synthetic demo byline
+W09,,Assessing soil moisture retrieval across land covers,2021,Example Journal of Quantitative Remote Sensing,1111-1111,Q1,示例作者 I,,Highland Institute,,3,no,sole,Synthetic demo byline
+W10,,Tracking seasonal changes in soil moisture,2022,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 I,,Highland Institute,,1,sole,no,Synthetic demo byline
+W10,,Tracking seasonal changes in soil moisture,2022,Example Journal of Land Surface Monitoring,3333-3333,Q1,示例作者 A,,Northlake University,,2,no,no,Synthetic demo byline
+W11,,Estimating canopy cover from multitemporal imagery,2022,Example Reports in Environmental Mapping,4444-4444,Q3,示例作者 F,,Riverfield Lab,,1,sole,no,Synthetic demo byline
+W11,,Estimating canopy cover from multitemporal imagery,2022,Example Reports in Environmental Mapping,4444-4444,Q3,示例作者 G,,Riverfield Lab,,2,no,no,Synthetic demo byline
+W11,,Estimating canopy cover from multitemporal imagery,2022,Example Reports in Environmental Mapping,4444-4444,Q3,示例作者 A,,Northlake University,,3,no,sole,Synthetic demo byline
+W12,,Cross-sensor validation of vegetation cover maps,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 E,,Eastbay Institute,,1,sole,no,Synthetic demo byline
+W12,,Cross-sensor validation of vegetation cover maps,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 B,,Northlake University,,2,no,no,Synthetic demo byline
+W12,,Cross-sensor validation of vegetation cover maps,2021,Example Letters in Earth Observation,2222-2222,Q2,示例作者 A,,Northlake University,,3,no,sole,Synthetic demo byline

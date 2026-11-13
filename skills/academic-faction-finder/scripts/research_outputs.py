@@ -6,12 +6,13 @@ import json
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote, urlencode
 
 from faction_query import main as build_network
 from faction_query import (
-    LEAD_ROLES, ROLE_FIELDS, clean_orcid, norm_name, norm_text, parse_name_alias,
-    read_csv, role_flag, role_status, write_csv,
+    AFFILIATION_PRIORITY, LEAD_ROLES, ROLE_FIELDS, affiliation_priority, clean_orcid, norm_name,
+    norm_text, orcid_profile_url, parse_name_alias, read_csv, role_flag, role_status,
+    verified_affiliation, write_csv,
 )
 
 
@@ -24,8 +25,31 @@ PAIR_ROLES = {"author", "inventor", "developer", "copyright_holder"}
 PAPER_COLUMNS = ["work_id", "doi", "title", "year", "venue", "issn", "zone", "author_name",
                  "author_order", "org_name", "org_id", "orcid",
                  "verified_person_id", "verified_name", "identity_source",
-                 "is_first", "is_corresponding", "role_source"]
+                 "is_first", "is_corresponding", "role_source", "source", "affiliation_basis",
+                 "affiliation_confirmation", "affiliation_complete"]
 PAPER_LIST_COLUMNS = ["year", "authors", "title", "doi", "is_first", "is_corresponding", "sources"]
+AFFILIATION_GAP_COLUMNS = ["work_id", "doi", "title", "year", "author_order", "author_name", "reason", "sources"]
+PAPER_LOOKUP_COLUMNS = ["work_id", "doi", "title", "author_positions", "author_names",
+                        "publisher_url", "doi_search_url", "title_search_url", "crossref_url"]
+
+
+def affiliation_paper_lookups(gaps):
+    by_work = defaultdict(list)
+    for gap in gaps:
+        by_work[gap["work_id"]].append(gap)
+    lookups = []
+    for work_id, rows in by_work.items():
+        doi, title = rows[0]["doi"], rows[0]["title"]
+        lookups.append({
+            "work_id": work_id, "doi": doi, "title": title,
+            "author_positions": " | ".join(row.get("author_order", "") or "all" for row in rows),
+            "author_names": " | ".join(row["author_name"] for row in rows if row.get("author_name")),
+            "publisher_url": "https://doi.org/" + quote(doi, safe="/") if doi else "",
+            "doi_search_url": "https://www.google.com/search?" + urlencode({"q": f'"{doi}" author affiliations'}) if doi else "",
+            "title_search_url": "https://www.google.com/search?" + urlencode({"q": f'"{title}"'}) if title else "",
+            "crossref_url": "https://api.crossref.org/works/" + quote(doi, safe="/") if doi else "",
+        })
+    return lookups
 
 
 def result_key(row):
@@ -48,6 +72,30 @@ def load_table(path, required):
     if not rows or not required <= rows[0].keys():
         raise ValueError(f"{path} needs data and columns {', '.join(sorted(required))}")
     return rows
+
+
+def reconcile_paper_candidates(path, statuses):
+    candidates = defaultdict(list)
+    for row in load_table(path, {"result_id", "source"}):
+        if not row["source"]:
+            raise ValueError(f"Missing paper candidate source on {row['result_id']}")
+        key = result_key({**row, "result_type": "paper"})
+        candidates[key].append(row)
+
+    output = []
+    for key, rows in sorted(candidates.items()):
+        status = statuses.get(key, "missing_from_input")
+        reasons = {row["exclusion_reason"] for row in rows if row.get("exclusion_reason")}
+        if reasons:
+            status = "decision_conflict" if status == "attributed" else "excluded"
+        output.append({
+            "result_id": key[1],
+            "title": " | ".join(sorted({row["title"] for row in rows if row.get("title")})),
+            "sources": " | ".join(sorted({row["source"] for row in rows})),
+            "status": status,
+            "exclusion_reason": " | ".join(sorted(reasons)),
+        })
+    return output
 
 
 def paper_list_entry(group, identifier, target, name_key):
@@ -101,11 +149,14 @@ def main(argv=None):
     parser.add_argument("--input", type=Path, required=True, help="normalized evidence CSV")
     parser.add_argument("--target", required=True, help="verified person_id")
     parser.add_argument("--reference", type=Path, help="independent CSV with result_type,result_id,source")
+    parser.add_argument("--paper-candidates", type=Path,
+                        help="discovered paper CSV with result_id,source and optional title,exclusion_reason")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--network", action="store_true", help="build the role-weighted paper network")
     parser.add_argument("--paper-list", action="store_true",
                         help="export a citation list for papers attributed to the target")
     parser.add_argument("--alias-map", help="institution aliases CSV for the paper network")
+    parser.add_argument("--org-parents", help="CSV of sourced subordinate-unit to parent mappings")
     parser.add_argument("--affiliation-history", help="CSV of sourced affiliation dates for the paper network")
     parser.add_argument("--name-alias", action="append", default=[],
                         help="verified name variants, Canonical=Variant A|Variant B (repeatable)")
@@ -144,11 +195,13 @@ def main(argv=None):
         position = row.get("position", "")
         if kind == "paper" and role == "author" and (not position.isdecimal() or int(position) < 1):
             raise ValueError(f"Paper authors need an exact 1-based position on {identifier}")
+        if row.get("affiliation_basis", "") not in AFFILIATION_PRIORITY.keys() | {"other", "index"}:
+            raise ValueError(f"Invalid affiliation_basis on {identifier}")
         if position.isdecimal():
             row["position"] = str(int(position))
         grouped[kind, identifier].append(row)
 
-    results, paper_rows, paper_list = [], [], []
+    results, paper_rows, paper_list, affiliation_gaps = [], [], [], []
     pair_evidence = defaultdict(set)
     counts = Counter(dict.fromkeys((
         "paper", "patent", "software", "paper_pending", "patent_pending", "software_pending",
@@ -228,19 +281,54 @@ def main(argv=None):
             for row in group:
                 if row["role"] == "author" and row["entity_type"] == "person":
                     by_position[row["position"]].append(row)
+            known_positions = {int(position) for position in by_position}
+            declared_counts = {int(row["author_count"]) for row in group
+                               if row.get("author_count", "").isdecimal() and int(row["author_count"]) > 0}
+            gap_context = {
+                "work_id": identifier, "doi": identifier[4:] if identifier.startswith("doi:") else "",
+                "title": metadata["title"], "year": metadata["year"],
+                "sources": " | ".join(sorted({row["source"] for row in group})),
+            }
+            if len(declared_counts) != 1:
+                affiliation_gaps.append({**gap_context, "reason": "author_count_unverified"})
+            author_count = max(declared_counts | known_positions, default=0)
+            for position in sorted(set(range(1, author_count + 1)) - known_positions):
+                affiliation_gaps.append({
+                    **gap_context, "author_order": position, "reason": "author_position_missing",
+                })
             for position, signatures in sorted(by_position.items(), key=lambda item: int(item[0])):
                 selected = next((row for row in signatures if row["person_id"]), signatures[0])
                 key = name_key(selected["raw_name"])
                 orcid = clean_orcid(selected.get("orcid"))
-                aligned = [row for row in signatures
-                           if (selected["person_id"] and selected["person_id"] == row["person_id"])
-                           or (orcid and orcid == clean_orcid(row.get("orcid")))
-                           or name_key(row["raw_name"]) == key]
-                for row in aligned:
-                    paper_rows.append({
-                        **row, **metadata, "work_id": identifier,
+                spellings = {key, " ".join(reversed(key.split()))}
+                aligned = []
+                for row in signatures:
+                    row_orcid = clean_orcid(row.get("orcid"))
+                    same_id = selected["person_id"] and selected["person_id"] == row["person_id"]
+                    if orcid and row_orcid and orcid != row_orcid and not same_id:
+                        continue
+                    if same_id or (orcid and orcid == row_orcid) or name_key(row["raw_name"]) in spellings:
+                        aligned.append(row)
+                byline = max(aligned, key=affiliation_priority)
+                units_with_rank = [(row, affiliation_priority(row)) for row in aligned if row.get("org_name")]
+                best = max((rank for _, rank in units_with_rank), default=-1)
+                unit_rows = [row for row, rank in units_with_rank if rank == best and verified_affiliation(row)]
+                if not unit_rows:
+                    affiliation_gaps.append({
+                        "work_id": identifier,
                         "doi": identifier[4:] if identifier.startswith("doi:") else "",
-                        "author_name": selected["raw_name"], "author_order": position,
+                        "title": metadata["title"], "year": metadata["year"],
+                        "author_order": position, "author_name": selected["canonical_name"] or selected["raw_name"],
+                        "reason": ("affiliation_not_reviewed" if best >= 0 else
+                                   "affiliation_source_unconfirmed" if units_with_rank else "affiliation_missing"),
+                        "sources": " | ".join(sorted({row["source"] for row in signatures})),
+                    })
+                for row in aligned:
+                    units = {} if row in unit_rows else {"org_name": "", "org_id": ""}
+                    paper_rows.append({
+                        **row, **metadata, **units, "work_id": identifier,
+                        "doi": identifier[4:] if identifier.startswith("doi:") else "",
+                        "author_name": byline["raw_name"], "author_order": position,
                         "verified_person_id": selected["person_id"], "verified_name": selected["canonical_name"],
                         "identity_source": selected["identity_source"],
                         "role_source": row.get("role_source") or row["source"],
@@ -267,11 +355,20 @@ def main(argv=None):
                                    "status": statuses.get((kind, identifier), "missing_from_input")})
         reference_rows = list({tuple(row.values()): row for row in reference_rows}.values())
 
+    candidate_rows = reconcile_paper_candidates(args.paper_candidates, statuses) if args.paper_candidates else []
+    orcid_url = orcid_profile_url(row.get("orcid") for row in rows if row["person_id"] == args.target)
+    if orcid_url:
+        for row in paper_rows:
+            if row["verified_person_id"] == args.target:
+                row["orcid"] = clean_orcid(orcid_url)
     args.out.mkdir(parents=True, exist_ok=True)
     write_csv(args.out / "output_evidence.csv", rows, list(rows[0]))
     write_csv(args.out / "research_outputs.csv",
               [row for row in results if row["result_type"] != "paper"], list(results[0]))
     write_csv(args.out / "paper_authorship.csv", paper_rows, PAPER_COLUMNS)
+    write_csv(args.out / "affiliation_gaps.csv", affiliation_gaps, AFFILIATION_GAP_COLUMNS)
+    paper_lookups = affiliation_paper_lookups(affiliation_gaps)
+    write_csv(args.out / "paper_affiliation_lookups.csv", paper_lookups, PAPER_LOOKUP_COLUMNS)
     if args.paper_list:
         paper_list.sort(key=lambda row: (
             not any(row[field] in LEAD_ROLES for field in ROLE_FIELDS),
@@ -283,13 +380,24 @@ def main(argv=None):
     if args.reference:
         write_csv(args.out / "output_reference_coverage.csv", reference_rows,
                   ["result_type", "result_id", "source", "status"])
+    if args.paper_candidates:
+        write_csv(args.out / "paper_candidate_coverage.csv", candidate_rows,
+                  ["result_id", "title", "sources", "status", "exclusion_reason"])
     reference_counts = Counter(row["status"] for row in reference_rows)
     summary = {"target_id": args.target, "counts": dict(counts),
                "independent_list_status": (
                    "not_checked" if not args.reference else
                    "gaps_found" if any(row["status"] != "attributed" for row in reference_rows)
                    else "reference_list_reconciled"),
-               "reference_counts": dict(reference_counts)}
+               "reference_counts": dict(reference_counts),
+               "orcid_url": orcid_url or None,
+               "orcid_status": "found" if orcid_url else "not_found"}
+    summary["affiliation_gaps"] = {"file": "affiliation_gaps.csv", "rows": len(affiliation_gaps),
+                                   "status": "incomplete" if affiliation_gaps else "complete",
+                                   "paper_lookup_file": "paper_affiliation_lookups.csv",
+                                   "papers_with_gaps": len(paper_lookups)}
+    if args.paper_candidates:
+        summary["paper_candidate_counts"] = dict(Counter(row["status"] for row in candidate_rows))
     if args.paper_list:
         summary["paper_list"] = {"file": "paper_list.csv", "rows": len(paper_list)}
     try:
@@ -305,13 +413,24 @@ def main(argv=None):
                     alias_args.extend(["--alias-map", args.alias_map])
                 if args.affiliation_history:
                     alias_args.extend(["--affiliation-history", args.affiliation_history])
+                if args.org_parents:
+                    alias_args.extend(["--org-parents", args.org_parents])
                 build_network([
                     "--source", "local", "--input", str(args.out / "paper_authorship.csv"),
                     "--seed-name", names[args.target], "--seed-work",
                     f"{anchor['work_id']}@{anchor['author_order']}",
-                    "--mode", "seed", "--community", "louvain", "--out", str(network_dir), *alias_args,
+                    "--affiliation-gaps", str(args.out / "affiliation_gaps.csv"),
+                    "--mode", "seed", "--out", str(network_dir), *alias_args,
                 ], quiet=True)
-                summary["paper_network"]["status"] = "built"
+                stats = json.loads((network_dir / "summary.json").read_text(encoding="utf-8"))["stats"]
+                pending = stats["works_pending_affiliation"]
+                summary["paper_network"].update(
+                    status="built",
+                    papers_in_catalog=stats["works_in_scope"],
+                    papers_in_network=stats["works_in_network"],
+                    papers_with_verified_authors=stats["works_in_network"],
+                    papers_pending_affiliation=len(pending),
+                )
     finally:
         (args.out / "output_summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

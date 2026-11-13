@@ -10,7 +10,7 @@ Pipeline (always executed in this order, fully logged):
   2. acquire records          (demo CSV, local long-table CSV, or OpenAlex API)
   3. disambiguate persons     (shared-affiliation rule, auditable)
   4. build co-author edges    (weight = number of jointly signed papers)
-  5. detect factions          (weighted label propagation / optional Louvain)
+  5. identify peer groups and constrain membership by signed affiliations
   6. export                   (CSV + SQLite + self-contained HTML + log)
 
 Core identity rule (as specified by the user):
@@ -29,12 +29,12 @@ Pure co-authorship only. No advisor/advisee inference, no interest analysis.
 
 Usage:
   python faction_query.py --demo-out
-  python faction_query.py --source demo --author "K. Alden" --zone Q1 --min-collab 2
-  python faction_query.py --source local --input my.csv --author "K. Alden" --org "Northlake University"
+  python faction_query.py --source demo --author "示例作者 A" --zone Q1 --min-collab 2
+  python faction_query.py --source local --input my.csv --author "Example Author" --org "Example University"
   python faction_query.py --source openalex --author "Some Name" --org "Some Univ" \
       --journal "1234-5678" --zone Q1 --zone-map zones.csv --api-key KEY
 
-Python 3.9+ standard library only. Optional: networkx>=3.0 for --community louvain.
+Python 3.9+. Louvain uses networkx when available.
 """
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ import argparse
 import csv
 import json
 import logging
-import math
 import os
 import re
 import sqlite3
@@ -70,6 +69,7 @@ PALETTE = [
     "#f39383", "#84c9e6", "#b0d792", "#d2aa92", "#b9b4dc",
 ]
 ISOLATED_COLOR = "#a5b5b1"
+AFFILIATION_PRIORITY = {"": 0, "same_work": 1, "paper": 2}
 
 
 # --------------------------------------------------------------------------
@@ -98,6 +98,14 @@ def norm_org_name(value) -> str:
 def clean_orcid(value) -> str:
     m = re.search(r"(\d{4}-\d{4}-\d{4}-[\dxX]{4})", str(value or ""))
     return m.group(1).upper() if m else ""
+
+
+def orcid_profile_url(orcids) -> str:
+    ids = {clean_orcid(value) for value in orcids} - {""}
+    if len(ids) != 1:
+        return ""
+    identifier = next(iter(ids))
+    return "https://orcid.org/" + identifier if re.fullmatch(r"\d{4}-\d{4}-\d{4}-\d{3}[\dX]", identifier) else ""
 
 
 ROLE_FIELDS = ("is_first", "is_corresponding")
@@ -157,37 +165,46 @@ def split_issn(value) -> list[str]:
     return [x.strip().upper() for x in re.split(r"[|;,/\s]+", str(value or "")) if x.strip()]
 
 
-def org_key(name, oid, aliases) -> str:
+def org_key(name, oid, aliases, *, allow_partial=True) -> str:
     oid = oa_short_id(oid).lower()
     if oid:
-        return "id:" + oid
+        key = "id:" + oid
+        return aliases.get(key, key)
     n = norm_org_name(name)
     if not n:
         return ""
     if n in aliases:
         return aliases[n]
     parts = re.split(r"[,;，；]", str(name))
-    if len(parts) > 1:
+    if allow_partial and len(parts) > 1:
         keys = {aliases[part] for value in parts if (part := norm_org_name(value)) in aliases}
         if len(keys) == 1:
             return next(iter(keys))
     return "name:" + n
 
 
-def load_alias_map(path) -> dict:
+def load_alias_map(path, display_names=None) -> dict:
     out = {}
     if not path:
         return out
     if not Path(path).is_file():
         raise FileNotFoundError(f"Affiliation alias map not found: {path}")
     for row in read_csv(Path(path)):
-        k = norm_org_name(row.get("from_key", ""))
+        source_key = norm_text(row.get("from_key", ""))
+        k = ("id:" + oa_short_id(source_key[3:]) if source_key.startswith("id:")
+             else norm_org_name(source_key))
         v = norm_text(row.get("to_key", ""))
         if k and v:
             key = ("id:" + oa_short_id(v[3:]) if v.startswith("id:")
                    else "name:" + norm_org_name(v.removeprefix("name:")))
             if out.setdefault(k, key) != key:
                 raise ValueError(f"Conflicting affiliation aliases for {k}")
+            label = row.get("display_name", "").strip()
+            if label and display_names is not None:
+                if not row.get("source", "").strip():
+                    raise ValueError(f"A canonical affiliation display name needs a source: {label}")
+                if display_names.setdefault(key, label) != label:
+                    raise ValueError(f"Conflicting affiliation display names for {key}")
     for key in list(out.values()):
         if key.startswith("name:"):
             out.setdefault(key[5:], key)
@@ -288,7 +305,7 @@ def oa_lookup(path: str, term: str, select: str, api_key: str, n: int = 5) -> li
     return data.get("results", []) or []
 
 
-def openalex_org_pairs(authorship: dict) -> list[tuple[str, str]]:
+def openalex_org_pairs(authorship: dict, *, signed_only=False) -> list[tuple[str, str]]:
     pairs = {}
     for inst in authorship.get("institutions") or []:
         name = (inst.get("display_name") or "").strip()
@@ -297,13 +314,26 @@ def openalex_org_pairs(authorship: dict) -> list[tuple[str, str]]:
             pairs[name, oid] = None
     ids = {oa_short_id(oid) for _, oid in pairs if oid}
     names = {norm_org_name(name) for name, _ in pairs}
-    raw = dict.fromkeys(authorship.get("raw_affiliation_strings") or [])
+    original = [label.strip() for label in authorship.get("raw_affiliation_strings") or []
+                if label and label.strip()]
+    raw = dict.fromkeys(original)
     mapped = set()
     for affil in authorship.get("affiliations") or []:
         label = affil.get("raw_affiliation_string")
         raw.setdefault(label)
         if any(oa_short_id(oid) in ids for oid in affil.get("institution_ids") or []):
             mapped.add(label)
+    if signed_only:
+        by_name = defaultdict(set)
+        for name, oid in pairs:
+            if name and oid:
+                by_name[norm_org_name(name)].add(oid)
+        signed = []
+        for label in dict.fromkeys(original or raw):
+            if label and label.strip():
+                matches = by_name[norm_org_name(label)]
+                signed.append((label.strip(), next(iter(matches)) if len(matches) == 1 else ""))
+        return signed or [("", "")]
     for label in raw:
         if label and label.strip() and label not in mapped and norm_org_name(label) not in names:
             pairs[label.strip(), ""] = None
@@ -343,6 +373,7 @@ def openalex_works_to_dicts(results: list[dict]) -> list[dict]:
                 "name": name, "orcid": set(), "orgs": {}, "order": pos, "actual_order": pos,
                 "role_sources": {"OpenAlex authorships"},
             })
+            a["indexed_orgs"] = openalex_org_pairs(ash)
             if ash.get("author_position") == "first":
                 a["is_first"] = {"yes"}
             if ash.get("is_corresponding") is True:
@@ -350,7 +381,7 @@ def openalex_works_to_dicts(results: list[dict]) -> list[dict]:
             orcid = openalex_byline_orcid(ash)
             if orcid:
                 a["orcid"].add(orcid)
-            for oname, oid in openalex_org_pairs(ash):
+            for oname, oid in openalex_org_pairs(ash, signed_only=True):
                 a["orgs"][oname, oid] = None
         works.append({
             "work_id": oa_short_id(w.get("id") or w.get("doi") or ""),
@@ -519,7 +550,26 @@ def fetch_openalex(args, api_key: str, aliases: dict):
     return openalex_works_to_dicts(all_works[:args.max_works]), truncated
 
 
-def rows_to_works(rows: list[dict]) -> list[dict]:
+def affiliation_priority(row):
+    basis = row.get("affiliation_basis", "")
+    source = (urllib.parse.urlsplit(row.get("source", "")).hostname or "")
+    source = source.removeprefix("www.").removeprefix("api.")
+    if basis == "same_work":
+        confirmation = (urllib.parse.urlsplit(row.get("affiliation_confirmation", "")).hostname or "")
+        confirmation = confirmation.removeprefix("www.").removeprefix("api.")
+        if not confirmation or confirmation == source or confirmation == "openalex.org":
+            return -1
+    elif source == "openalex.org":
+        return -1
+    return AFFILIATION_PRIORITY.get(basis, -1)
+
+
+def verified_affiliation(row):
+    return (row.get("affiliation_complete") == "yes" and bool(row.get("source"))
+            and affiliation_priority(row) > 0)
+
+
+def rows_to_works(rows: list[dict], *, require_verified_affiliations=True) -> list[dict]:
     works = {}
     for r in rows:
         wid = str(r.get("work_id") or "").strip()
@@ -569,7 +619,10 @@ def rows_to_works(rows: list[dict]) -> list[dict]:
         oname = str(r.get("org_name") or "").strip()
         oid = str(r.get("org_id") or "").strip()
         if oname or oid:
-            a["orgs"][(oname, oid)] = None
+            if require_verified_affiliations and not verified_affiliation(r):
+                a.setdefault("indexed_orgs", set()).add((oname, oid))
+            else:
+                a["orgs"][(oname, oid)] = None
     return list(works.values())
 
 
@@ -644,7 +697,7 @@ def apply_scope(works: list[dict], args, zone_map: dict, aliases: dict) -> list[
         if org_keys:
             orgs, keys = set(), set()
             for a in w["authors"].values():
-                for oname, oid in a["orgs"]:
+                for oname, oid in (*a["orgs"], *a.get("indexed_orgs", ())):
                     orgs.add(norm_org_name(oname))
                     keys.add(org_key(oname, oid, aliases))
             hit = bool(keys & org_keys) or any(t in o for t in org_terms for o in orgs if o)
@@ -665,11 +718,21 @@ def apply_scope(works: list[dict], args, zone_map: dict, aliases: dict) -> list[
 # --------------------------------------------------------------------------
 
 def works_to_rows(works: list[dict]) -> list[dict]:
+    org_names = defaultdict(set)
+    for work in works:
+        for author in work["authors"].values():
+            for name, oid in author["orgs"]:
+                if name and oid:
+                    org_names[org_key("", oid, {})].add(name)
     rows = []
     for w in works:
         for (nk, _), a in w["authors"].items():
             pairs = list(a["orgs"].keys()) or [("", "")]
             for oname, oid in pairs:
+                if not oname and oid:
+                    names = org_names[org_key("", oid, {})]
+                    if len({norm_org_name(name) for name in names}) == 1:
+                        oname = min(names)
                 rows.append({
                     "work_id": w["work_id"],
                     "year": w["year"],
@@ -729,8 +792,9 @@ def resolve_entities(rows: list[dict], args, aliases: dict, ignored):
         inst = instances.setdefault(key, {
             "work_id": r["work_id"], "year": r["year"],
             "name": display_names.get(nk, r["author_name"]),
+            "raw_name": r["author_name"],
             "name_key": nk, "orcid": r["orcid"], "orcid_conflict": r["orcid_conflict"],
-            "org_keys": set(), "org_names": set(), "org_pairs": set(),
+            "org_keys": set(), "org_names": set(), "org_pairs": set(), "signed_orgs": defaultdict(set),
             "org_display": set(), "order": r["order"],
             "verified": verified, "match_names": set(),
             "actual_order": r.get("actual_order"), "role_sources": set(),
@@ -756,8 +820,9 @@ def resolve_entities(rows: list[dict], args, aliases: dict, ignored):
             inst["org_keys"].add(ok)
             inst["org_names"].add(nk)
             inst["org_pairs"].add((ok, r["org_name"], r["org_id"]))
-            if r["org_name"]:
-                inst["org_display"].add(r["org_name"])
+            signed_key = org_key(r["org_name"], r["org_id"], aliases, allow_partial=False)
+            inst["signed_orgs"][signed_key].update(filter(None, (r["org_name"],)))
+            inst["org_display"].add(r["org_name"] or ok.removeprefix("id:"))
     ordered = sorted(instances.values(),
                      key=lambda x: (not x["verified"], x["year"] or 0, x["work_id"], x["name_key"]))
     signatures = Counter((inst["work_id"], inst["name_key"]) for inst in ordered)
@@ -816,6 +881,7 @@ def resolve_entities(rows: list[dict], args, aliases: dict, ignored):
                 "person_id": pid, "org_key": ok, "org_name": oname,
                 "first_year": inst["year"], "last_year": inst["year"],
             })
+            rec["org_name"] = rec["org_name"] or oname
             if inst["year"]:
                 rec["first_year"] = min(rec["first_year"] or inst["year"], inst["year"])
                 rec["last_year"] = max(rec["last_year"] or inst["year"], inst["year"])
@@ -833,8 +899,11 @@ def resolve_entities(rows: list[dict], args, aliases: dict, ignored):
             "work_id": inst["work_id"], "evidence": evidence, "detail": detail,
             "authorship": {
                 "author_order": inst["actual_order"],
+                "raw_name": inst["raw_name"],
                 "affiliations": sorted(inst["org_display"]),
-                "affiliation_keys": inst["org_keys"] - ignored_keys,
+                "affiliation_names": inst["signed_orgs"],
+                "observed_keys": inst["org_keys"],
+                "timeline_keys": inst["org_keys"] - ignored_keys,
                 "is_first": role_status(inst["is_first"] or ({"yes"} if inst["actual_order"] == 1 else set())),
                 "is_corresponding": role_status(inst["is_corresponding"]),
                 "role_source": (" | ".join(sorted(inst["role_sources"] - {""}))
@@ -884,6 +953,7 @@ def resolve_entities(rows: list[dict], args, aliases: dict, ignored):
                 rec = person_orgs.pop((pid, ok))
                 rec["person_id"] = keep
                 current = person_orgs.setdefault((keep, ok), rec)
+                current["org_name"] = current["org_name"] or rec["org_name"]
                 for field, choose in (("first_year", min), ("last_year", max)):
                     dates = [v for v in (current[field], rec[field]) if v is not None]
                     current[field] = choose(dates) if dates else None
@@ -1064,22 +1134,21 @@ def build_edges(work_persons: dict, works: list[dict], authorship: dict,
                 seeds: list[str]) -> list[dict]:
     years = {w["work_id"]: w["year"] for w in works}
     seed_set = set(seeds)
-    pairs = defaultdict(lambda: {"n": 0, "role_weight": 0, "years": Counter()})
+    pairs = defaultdict(lambda: {"papers": {}, "years": Counter()})
     for wid, pids in work_persons.items():
         yr = years.get(wid)
         scores = {pid: authorship.get((wid, pid), {}).get("role_score", 1) for pid in pids}
         for a, b in combinations(sorted(pids), 2):
             rec = pairs[(a, b)]
-            rec["n"] += 1
-            rec["role_weight"] += min(scores[a], scores[b]) if a in seed_set or b in seed_set else 1
+            rec["papers"][wid] = min(scores[a], scores[b]) if a in seed_set or b in seed_set else 1
             if yr:
                 rec["years"][yr] += 1
     edges = []
     for (a, b), rec in sorted(pairs.items()):
         ys = rec["years"]
         edges.append({
-            "src": a, "dst": b, "n_papers": rec["n"],
-            "role_weight": rec["role_weight"],
+            "src": a, "dst": b, "n_papers": len(rec["papers"]),
+            "role_weight": sum(rec["papers"].values()), "papers": rec["papers"],
             "first_year": min(ys) if ys else "",
             "last_year": max(ys) if ys else "",
             "year_counts": json.dumps(dict(sorted(ys.items())), ensure_ascii=False),
@@ -1093,6 +1162,30 @@ def build_edges(work_persons: dict, works: list[dict], authorship: dict,
 # stage 5: factions
 # --------------------------------------------------------------------------
 
+def graph_scope(edges, persons, seeds, args):
+    kept = [edge for edge in edges if edge["n_papers"] >= args.min_collab]
+    nodes = set(persons)
+    if args.mode == "seed" and seeds and not args.seed_work:
+        neighbors = defaultdict(set)
+        for edge in edges:
+            a, b = edge["src"], edge["dst"]
+            neighbors[a].add(b)
+            neighbors[b].add(a)
+        nodes = set(seeds)
+        frontier = nodes.copy()
+        for _ in range(max(1, args.hop)):
+            frontier = {p for seed in frontier for p in neighbors[seed]} - nodes
+            nodes.update(frontier)
+
+    sub = [edge for edge in kept if edge["src"] in nodes and edge["dst"] in nodes]
+    degree = dict.fromkeys(persons, 0.0)
+    for edge in sub:
+        weight = graph_weight(edge, args)
+        degree[edge["src"]] += weight
+        degree[edge["dst"]] += weight
+    return kept, sub, degree, nodes
+
+
 def label_num(pid: str) -> int:
     try:
         return int(str(pid)[1:])
@@ -1100,31 +1193,7 @@ def label_num(pid: str) -> int:
         return 0
 
 
-def detect_factions(edges, persons, seeds, args):
-    kept = [e for e in edges if e["n_papers"] >= args.min_collab]
-    if args.mode == "seed":
-        if not seeds:
-            LOG.warning("seed mode requested without --author; falling back to scope mode")
-            nodes = set(persons)
-            sub = kept
-        else:
-            nodes = set(seeds)
-            frontier = set(seeds)
-            for _ in range(max(1, args.hop)):
-                nxt = set()
-                for e in kept:
-                    if e["src"] in frontier:
-                        nxt.add(e["dst"])
-                    if e["dst"] in frontier:
-                        nxt.add(e["src"])
-                nxt -= nodes
-                nodes |= nxt
-                frontier = nxt
-            sub = [e for e in kept if e["src"] in nodes and e["dst"] in nodes]
-    else:
-        nodes = set(persons)
-        sub = kept
-
+def detect_peer_groups(sub, seeds, args):
     # In a target-centred graph, the target connects otherwise distinct teams.
     # Discover peer groups first, then test the target's links to each group.
     discovery_edges = sub
@@ -1133,12 +1202,7 @@ def detect_factions(edges, persons, seeds, args):
         discovery_edges = [e for e in sub if not seed_set.intersection((e["src"], e["dst"]))]
     discovery_nodes = {p for e in discovery_edges for p in (e["src"], e["dst"])}
     adj = defaultdict(list)
-    degree = defaultdict(float)
     discovery_degree = defaultdict(float)
-    for e in sub:
-        weight = graph_weight(e, args)
-        degree[e["src"]] += weight
-        degree[e["dst"]] += weight
     for e in discovery_edges:
         a, b, weight = e["src"], e["dst"], graph_weight(e, args)
         adj[a].append((b, weight))
@@ -1186,132 +1250,138 @@ def detect_factions(edges, persons, seeds, args):
     groups = defaultdict(list)
     for p in discovery_nodes:
         groups[labels[p]].append(p)
-    ordered_groups = sorted(groups.values(), key=lambda g: (-len(g), min(g)))
-    cid = {}
-    roles = {}
-    for i, group in enumerate((g for g in ordered_groups if len(g) > 1), 1):
-        ranked = sorted(group, key=lambda p: (-discovery_degree[p], p))
-        n_core = math.ceil(len(ranked) * 0.3)
-        for rank, p in enumerate(ranked):
-            cid[p] = i
-            roles[p] = "core" if rank < n_core else "peripheral"
-    for p in persons:
-        cid.setdefault(p, -1)
-        degree.setdefault(p, 0.0)
-        roles.setdefault(p, "isolated")
-
-    active = [c for c in set(cid.values()) if c > 0]
-    LOG.info("Factions: %d communities + isolated nodes; kept edges = %d / %d (min-collab=%d)",
-             len(active), len(sub), len(edges), args.min_collab)
-    return kept, sub, cid, degree, roles, method, nodes
+    return sorted((set(g) for g in groups.values() if len(g) > 1),
+                  key=lambda g: (-len(g), min(g))), method
 
 
-def community_memberships(cid, nodes, work_persons, works, authorship, roles, args):
-    """Attach people to additional peer groups using distinct papers and partners."""
-    support = defaultdict(lambda: defaultdict(dict))
-    for wid, pids in work_persons.items():
-        active = pids & nodes
-        by_group = defaultdict(set)
-        for pid in active:
-            if cid[pid] > 0:
-                by_group[cid[pid]].add(pid)
-        for group, members in by_group.items():
-            for pid in active:
-                partners = members - {pid}
-                if partners:
-                    support[pid][group][wid] = partners
+def load_org_parents(path, aliases):
+    parents = {}
+    if path:
+        for row in read_csv(Path(path)):
+            unit = org_key(row.get("unit_name"), row.get("unit_id"), aliases, allow_partial=False)
+            parent = org_key(row.get("parent_name"), row.get("parent_id"), aliases, allow_partial=False)
+            label = str(row.get("parent_name") or "").strip()
+            if not all((unit, parent, label, str(row.get("source") or "").strip())) or unit == parent:
+                raise ValueError("Each parent mapping needs a distinct signed unit, parent name and source")
+            if parents.setdefault(unit, (parent, label)) != (parent, label):
+                raise ValueError(f"Conflicting parents for {unit}")
+        if any(parent in parents for parent, _ in parents.values()):
+            raise ValueError("Map each subordinate unit directly to its final parent")
+    return parents
 
+
+def affiliation_communities(nodes, persons, works, authorship, edges, sub, args, peer_groups,
+                            parents, standalone_orgs, display_names):
+    """Group authors by signed unit, including one-time collaborators."""
+    labels = defaultdict(Counter)
+    signed = {}
+    papers_by_org = defaultdict(lambda: defaultdict(set))
+    authors_per_work = Counter()
+    for (wid, pid), signature in authorship.items():
+        if pid not in nodes:
+            continue
+        signed[wid, pid] = {key: names for key, names in signature["affiliation_names"].items()
+                            if key in standalone_orgs}
+        for key, names in signed[wid, pid].items():
+            labels[key].update(names)
+            papers_by_org[key][pid].add(wid)
+            authors_per_work[key, wid] += 1
+    shared_units = {key for (key, _), count in authors_per_work.items() if count >= 2}
+    recurring_members = set().union(*peer_groups)
+    orgs = sorted(shared_units, key=lambda key: (-len(papers_by_org[key]), key))
     years = {work["work_id"]: work["year"] for work in works}
-    memberships = {pid: {} for pid in cid}
-    for pid, groups in support.items():
-        for group, papers in sorted(groups.items()):
-            partners = set().union(*papers.values())
-            is_base = group == cid[pid]
-            if not is_base and (len(papers) < max(2, args.min_collab) or len(partners) < 2):
-                continue
+    memberships = {pid: {} for pid in persons}
+    paper_groups = defaultdict(set)
+    factions = []
+    for group, key in enumerate(orgs, 1):
+        members = papers_by_org[key]
+        name = display_names.get(key) or labels[key].most_common(1)[0][0]
+        _, school = parents.get(key, (key, ""))
+        if school and norm_org_name(school) not in norm_org_name(name):
+            name = f"{school} · {name}"
+        factions.append({"faction_id": group, "faction_name": name,
+                         "size": len(members),
+                         "members": "; ".join(sorted(persons[p]["display_name"] for p in members))})
+        for pid, papers in members.items():
             by_year = Counter(years[wid] for wid in papers if years[wid])
-            affiliations = {org for wid in papers for org in
-                            authorship.get((wid, pid), {}).get("affiliations", ())}
+            affiliations = set()
+            for wid in papers:
+                paper_groups[wid, pid].add(group)
+                affiliations.update(signed[wid, pid][key])
             memberships[pid][group] = {
-                "is_base": int(is_base),
-                "role": roles[pid] if is_base else "peripheral",
+                "is_base": int(pid in recurring_members),
+                "role": "peripheral",
                 "supporting_papers": len(papers),
-                "community_partners": len(partners),
+                "community_partners": 0,
                 "first_year": min(by_year, default=""), "last_year": max(by_year, default=""),
                 "year_counts": json.dumps(dict(sorted(by_year.items()))),
                 "affiliations": "; ".join(sorted(affiliations)),
                 "work_ids": json.dumps(sorted(papers), ensure_ascii=False),
             }
-        if cid[pid] < 0 and memberships[pid]:
-            cid[pid] = max(memberships[pid], key=lambda group: (
-                memberships[pid][group]["supporting_papers"],
-                memberships[pid][group]["community_partners"], -group))
-            roles[pid] = "peripheral"
-    return memberships
 
-
-def faction_stats(sub, edges, memberships, cid, persons, args):
-    """Aggregate faction statistics in a single pass over the edge list."""
-    by_faction = defaultdict(list)
-    for p, groups in memberships.items():
-        for c in groups:
-            by_faction[c].append(p)
-    name = lambda p: persons[p]["display_name"]
-    sub_keys = {(e["src"], e["dst"]) for e in sub}
-
-    inside_all = defaultdict(list)
+    inside = defaultdict(Counter)
+    inside_weight = Counter()
     inside_kept = Counter()
-    inside_degree = defaultdict(Counter)
+    internal_degree = defaultdict(Counter)
+    partners = defaultdict(set)
+    cross = defaultdict(Counter)
     outbound = Counter()
-    cross_pairs = defaultdict(int)
-    cross_weights = defaultdict(float)
-    for e in edges:
-        a, b = e["src"], e["dst"]
-        left, right = memberships[a].keys(), memberships[b].keys()
-        shared = left & right
-        for group in shared:
-            if not (memberships[a][group]["is_base"] or memberships[b][group]["is_base"]):
-                continue
-            inside_all[group].append(e)
-            if (e["src"], e["dst"]) in sub_keys:
-                inside_kept[group] += 1
-                inside_degree[group][a] += graph_weight(e, args)
-                inside_degree[group][b] += graph_weight(e, args)
-        for group in left ^ right:
-            outbound[group] += e["n_papers"]
-        if not shared:
-            for ca in left:
-                for cb in right:
-                    key = tuple(sorted((ca, cb)))
-                    cross_pairs[key] += e["n_papers"]
-                    cross_weights[key] += e.get("role_weight", e["n_papers"])
+    kept_pairs = {(e["src"], e["dst"]) for e in sub}
+    for edge in edges:
+        a, b = pair = edge["src"], edge["dst"]
+        if a not in nodes or b not in nodes:
+            continue
+        common = Counter()
+        for wid, weight in edge["papers"].items():
+            left, right = paper_groups[wid, a], paper_groups[wid, b]
+            shared = left & right
+            for group in shared:
+                common[group] += 1
+                inside_weight[group] += weight
+                weighted = weight if args.edge_weight == "role" else 1
+                internal_degree[group][a] += weighted
+                internal_degree[group][b] += weighted
+            outbound.update(left ^ right)
+            if not shared:
+                for first, second in {(min(x, y), max(x, y)) for x in left for y in right}:
+                    cross[first, second].update(papers=1, role_weight=weight)
+        edge["same_faction"] = bool(common)
+        for group, count in common.items():
+            inside[group][pair] = count
+            inside_kept[group] += pair in kept_pairs
+            partners[a, group].add(b)
+            partners[b, group].add(a)
 
-    cross_rows = [{"faction_a": a, "faction_b": b, "collab_times": n,
-                   "role_weight": cross_weights[a, b]}
-                  for (a, b), n in sorted(cross_pairs.items())]
-    rows = []
-    for c in sorted(x for x in by_faction if x > 0):
-        members = set(by_faction[c])
-        all_inside = inside_all[c]
-        base_members = [p for p in members if cid[p] == c and memberships[p][c]["role"] == "core"]
-        core = sorted(base_members, key=lambda p: (-inside_degree[c][p], p))[:3]
-        top = sorted(all_inside, key=lambda e: -e["n_papers"])[:3]
-        total = sum(e["n_papers"] for e in all_inside)
-        rows.append({
-            "faction_id": c,
-            "size": len(members),
-            "members": "; ".join(sorted(name(p) for p in members)),
-            "core_members": "; ".join(name(p) for p in core),
-            "internal_pairs": len(all_inside),
-            "internal_collab_times": total,
-            "internal_role_weight": sum(e.get("role_weight", e["n_papers"]) for e in all_inside),
-            "mean_collab_per_pair": round(total / len(all_inside), 2) if all_inside else 0,
-            "top_pairs": "; ".join(f"{name(e['src'])} – {name(e['dst'])} ({e['n_papers']})"
-                                   for e in top),
-            "cross_faction_collab_times": outbound[c],
-            "edges_kept_by_threshold": inside_kept[c],
-        })
-    return rows, cross_rows
+    for faction in factions:
+        group = faction["faction_id"]
+        pairs = inside[group]
+        total = sum(pairs.values())
+        core = sorted(internal_degree[group], key=lambda p: (-internal_degree[group][p], p))[:3]
+        for pid in core:
+            memberships[pid][group]["role"] = "core"
+        faction.update(
+            core_members="; ".join(persons[p]["display_name"] for p in core),
+            internal_pairs=len(pairs),
+            internal_collab_times=total,
+            internal_role_weight=inside_weight[group],
+            mean_collab_per_pair=round(total / len(pairs), 2) if pairs else 0,
+            top_pairs="; ".join(f"{persons[a]['display_name']} – {persons[b]['display_name']} ({count})"
+                                for (a, b), count in pairs.most_common(3)),
+            cross_faction_collab_times=outbound[group],
+            edges_kept_by_threshold=inside_kept[group],
+        )
+
+    cid, roles = {}, {}
+    for pid, groups in memberships.items():
+        for group, entry in groups.items():
+            entry["community_partners"] = len(partners[pid, group])
+        main = max(groups, key=lambda group: (groups[group]["supporting_papers"], -group), default=-1)
+        cid[pid] = main
+        roles[pid] = groups[main]["role"] if main > 0 else "isolated"
+    cross_rows = [{"faction_a": a, "faction_b": b, "collab_times": tally["papers"],
+                   "role_weight": tally["role_weight"]}
+                  for (a, b), tally in sorted(cross.items())]
+    return cid, roles, memberships, factions, cross_rows
 
 
 # --------------------------------------------------------------------------
@@ -1329,7 +1399,7 @@ def affiliation_timeline(works, persons, person_orgs, authorship, estimate_for, 
     observed = defaultdict(lambda: defaultdict(set))
     by_person = defaultdict(list)
     for (wid, pid), signature in authorship.items():
-        orgs = signature["affiliation_keys"]
+        orgs = signature["timeline_keys"]
         for org in orgs:
             observed[pid, org][years[wid]].add(wid)
         if orgs and years[wid] and pid in estimate_for:
@@ -1452,7 +1522,7 @@ def write_db(path, args, run_id, works, persons, person_orgs, work_persons,
         "INSERT INTO faction VALUES (?,?,?,?,?,?,?)",
         [(run_id, p, cid[p], method,
           json.dumps({"min_collab": args.min_collab, "mode": args.mode,
-                      "resolution": args.resolution, "hop": args.hop,
+                      "hop": args.hop,
                       "edge_weight": getattr(args, "edge_weight", "role")}),
           degree[p], roles[p]) for p in persons],
     )
@@ -1477,8 +1547,9 @@ def write_db(path, args, run_id, works, persons, person_orgs, work_persons,
 
 
 def build_html(path, nodes, edges, persons, cid, memberships, degree, args, faction_rows,
-               *, seeds, paper_count):
+               *, seeds, paper_count, pending_affiliations, joint_units, seed_collaborations):
     palette_size = len(PALETTE)
+    faction_names = {row["faction_id"]: row["faction_name"] for row in faction_rows}
     node_rows = []
     for pid in sorted(nodes):
         p = persons[pid]
@@ -1487,14 +1558,16 @@ def build_html(path, nodes, edges, persons, cid, memberships, degree, args, fact
         node_rows.append({
             "id": pid,
             "name": p["display_name"],
-            "orgs": ", ".join(orgs) if orgs else "(no affiliation)",
+            "orgs": ", ".join(orgs),
+            "joint_units": sorted(joint_units[pid]),
             "c": c,
-            "groups": [{"id": g, "color": PALETTE[(g - 1) % palette_size],
+            "groups": [{"id": g, "name": faction_names[g], "color": PALETTE[(g - 1) % palette_size],
                         "papers": r["supporting_papers"],
                         "first": r["first_year"], "last": r["last_year"]}
                        for g, r in memberships[pid].items()],
             "color": ISOLATED_COLOR if c <= 0 else PALETTE[(c - 1) % palette_size],
             "deg": degree.get(pid, 0),
+            "seed_collaborations": seed_collaborations.get(pid, []),
             "seed": pid in seeds,
         })
     link_rows = [{"src": e["src"], "dst": e["dst"], "n": e["n_papers"], "w": graph_weight(e, args)}
@@ -1503,10 +1576,17 @@ def build_html(path, nodes, edges, persons, cid, memberships, degree, args, fact
         "nodes": node_rows, "edges": link_rows,
         "demo": args.source == "demo",
         "seed_names": list(dict.fromkeys(persons[pid]["display_name"] for pid in seeds)),
-        "paper_count": paper_count, "author_count": len(persons),
-        "min_collab": args.min_collab,
+        "seed_orcids": [
+            {"name": persons[pid]["display_name"],
+             "url": orcid_profile_url(persons[pid]["orcids"])
+             if not persons[pid]["orcid_conflict"]
+             and (persons[pid]["name_key"].startswith("verified:") or args.seed_work) else ""}
+            for pid in seeds
+        ],
+        "paper_count": paper_count, "pending_affiliations": pending_affiliations,
+        "author_count": len(persons),
         "edge_weight": getattr(args, "edge_weight", "role"),
-        "factions": [{"id": r["faction_id"], "size": r["size"],
+        "factions": [{"id": r["faction_id"], "name": r["faction_name"], "size": r["size"],
                       "color": PALETTE[(r["faction_id"] - 1) % palette_size],
                       "collab": r["internal_collab_times"]}
                      for r in faction_rows],
@@ -1565,11 +1645,12 @@ button { min-width: 34px; cursor: pointer; }
 button:hover { background: #e5efe3; }
 :focus-visible { outline: 2px solid #267957; outline-offset: 2px; }
 .controls { display: flex; gap: 5px; }
-#svg { display: block; width: 100%; height: auto; touch-action: none;
+#svg { display: block; width: 100%; height: auto; touch-action: none; cursor: grab; user-select: none;
        background-color: var(--plot);
        background-image: radial-gradient(circle, #91b6a538 1px, transparent 1.3px),
                          radial-gradient(ellipse at 45% 30%, #244d40, transparent 78%);
        background-size: 20px 20px, 100% 100%; }
+#svg.dragging, #svg.dragging .node { cursor: grabbing; }
 .plot-note { margin: 0; padding: 9px 13px; color: var(--muted); font-size: 12px; }
 aside { padding: 17px 15px; }
 aside h2 { margin: 0 0 10px; font-size: 16px; }
@@ -1585,6 +1666,7 @@ aside h2 { margin: 0 0 10px; font-size: 16px; }
 .node text { fill: #eef7ed; stroke: var(--plot); stroke-width: 3px; paint-order: stroke;
              font-size: 14px; font-weight: 650; text-anchor: middle; pointer-events: none; }
 .node.seed text { fill: #fff; font-weight: 750; }
+.node .node-unit { fill: #c6ded2; font-size: 10px; font-weight: 500; }
 .dense .node text { visibility: hidden; }
 .dense .node:is(.seed, .hit, :hover) text { visibility: visible; }
 .node.hit .marker { stroke: #fff; stroke-width: 3px; }
@@ -1608,10 +1690,10 @@ aside h2 { margin: 0 0 10px; font-size: 16px; }
     <span class="demo-label" id="demo-label" hidden>虚构数据演示</span>
   </div>
   <header>
-    <div><h1>合作网络</h1><p id="subject"></p></div>
+    <div><h1>合作网络</h1><p id="subject"></p><p id="pending" hidden></p></div>
     <dl class="stats">
-      <div><dt>范围内论文</dt><dd id="s1"></dd></div>
-      <div><dt>范围内作者</dt><dd id="s2"></dd></div>
+      <div><dt>图内论文</dt><dd id="s1"></dd></div>
+      <div><dt>已核验作者</dt><dd id="s2"></dd></div>
       <div><dt>合作社区</dt><dd id="s3"></dd></div>
     </dl>
   </header>
@@ -1631,8 +1713,8 @@ aside h2 { margin: 0 0 10px; font-size: 16px; }
     <aside>
       <h2>合作社区</h2>
       <div id="legend"></div>
-      <p class="hint">颜色表示社区，灰色表示未分组。白色外圈标记检索对象，多色外圈表示同时属于多个社区。</p>
-      <p class="hint">连线越粗，合作权重越高。悬停作者可查看单位和所属社区。</p>
+      <p class="hint">按合著关系识别社区。单位归属须有本人论文署名支持。白色外圈标记检索对象。</p>
+      <p class="hint">拖动画布空白处可平移。悬停作者可查看单位和所属社区，连线越粗表示合作权重越高。</p>
     </aside>
   </div>
 </main>
@@ -1682,7 +1764,8 @@ for (let step=0; step<STEPS; step++) {
     n.vx+=(n.anchor[0]-n.x)*pull; n.vy+=(n.anchor[1]-n.y)*pull;
     n.vx*=0.82; n.vy*=0.82;
     n.x+=Math.max(-14,Math.min(14,n.vx)); n.y+=Math.max(-14,Math.min(14,n.vy));
-    n.x=Math.max(48,Math.min(W-48,n.x)); n.y=Math.max(28,Math.min(H-42,n.y));
+    n.x=Math.max(48,Math.min(W-48,n.x));
+    n.y=Math.max(28,Math.min(H-42-13*n.joint_units.length,n.y));
   });
 }
 const svg=document.getElementById('svg');
@@ -1699,20 +1782,34 @@ for(const n of N){
     n.groups.forEach((g,i)=>{out+='<circle r="'+(r+2)+'" fill="none" stroke="'+g.color+'" stroke-width="2.5" pathLength="'+n.groups.length+'" stroke-dasharray=".88 '+(n.groups.length-.88)+'" stroke-dashoffset="'+(-i)+'" pointer-events="none"/>';});
   }
   if(n.seed) out+='<circle r="'+(r+(n.groups.length>1?6:3))+'" fill="none" stroke="#fff" stroke-width="1.5" pointer-events="none"/>';
-  out+='<text y="'+(r+20)+'">'+escapeText(n.name)+'</text></g>';
+  out+='<text y="'+(r+20)+'">'+escapeText(n.name);
+  for(const unit of n.joint_units){ out+='<tspan class="node-unit" x="0" dy="13">'+escapeText(unit)+'</tspan>'; }
+  out+='</text></g>';
 }
 out+='</g>';
 svg.innerHTML=out;
 document.getElementById('demo-label').hidden=!D.demo;
 document.getElementById('subject').textContent=D.seed_names.length ? '检索对象 · '+D.seed_names.join('、') : '当前范围内的合著关系';
+D.seed_orcids.forEach(profile=>{
+  const label=D.seed_orcids.length>1 ? profile.name+' ORCID' : 'ORCID';
+  const subject=document.getElementById('subject');
+  if(!profile.url){ subject.append(' · '+label+' 未找到'); return; }
+  const link=document.createElement('a');
+  link.href=profile.url; link.target='_blank'; link.rel='noopener';
+  link.textContent=label+' '+profile.url.split('/').pop();
+  subject.append(' · ', link);
+});
+const pending=document.getElementById('pending');
+pending.hidden=!D.pending_affiliations;
+pending.textContent='作者与连线仅按已核实署名展示。';
 document.getElementById('s1').textContent=D.paper_count;
 document.getElementById('s2').textContent=D.author_count;
 document.getElementById('s3').textContent=D.factions.length;
 const weighting=D.edge_weight==='role'&&D.seed_names.length ? '检索对象按署名角色加权' : '按共同论文篇数计权';
-document.getElementById('s4').textContent='图中 '+N.length+' 位作者 · '+L.length+' 条连线 · 合著阈值 '+D.min_collab+' 篇 · '+weighting;
+document.getElementById('s4').textContent='图中 '+N.length+' 位作者 · '+L.length+' 条连线 · '+weighting;
 document.getElementById('legend').innerHTML = D.factions.map(f=>
-  '<div class="legend"><span class="dot" style="background:'+f.color+'"></span><div><strong>社区 '+f.id+'</strong><small>'+f.size+' 位作者 · '+f.collab+' 次组内合著</small></div></div>').join('')
-  || '<p class="hint">当前合著阈值下未识别到合作社区。</p>';
+  '<div class="legend"><span class="dot" style="background:'+f.color+'"></span><div><strong>'+escapeText(f.name)+'</strong><small>'+f.size+' 位作者 · '+f.collab+' 次组内合著</small></div></div>').join('')
+  || '<p class="hint">当前范围没有符合条件的合作社区。</p>';
 let scale=1, tx=0, ty=0;
 const vp=document.getElementById('vp');
 const nodeElements=vp.querySelectorAll('.node');
@@ -1742,21 +1839,31 @@ document.getElementById('reset').onclick=()=>{
 };
 let drag=null;
 svg.addEventListener('pointerdown',e=>{
+  if(drag || e.button!==0) return;
   const g=e.target.closest('.node');
-  if(!g || e.button!==0) return;
-  const i=idx[g.dataset.id], n=N[i], p=svgPoint(e);
-  const links=[];
-  L.forEach((l,j)=>{
-    if(l.a===i || l.b===i) links.push([edgeElements[j],l.a===i?'1':'2']);
-  });
-  drag={g,n,links,pointer:e.pointerId,ox:(p.x-tx)/scale-n.x,oy:(p.y-ty)/scale-n.y};
+  const p=svgPoint(e);
+  if(g){
+    const i=idx[g.dataset.id], n=N[i], links=[];
+    L.forEach((l,j)=>{
+      if(l.a===i || l.b===i) links.push([edgeElements[j],l.a===i?'1':'2']);
+    });
+    drag={g,n,links,pointer:e.pointerId,ox:(p.x-tx)/scale-n.x,oy:(p.y-ty)/scale-n.y};
+  }else{
+    drag={pointer:e.pointerId,ox:p.x-tx,oy:p.y-ty};
+  }
   tip.hidden=true;
+  svg.classList.add('dragging');
   svg.setPointerCapture(e.pointerId);
 });
 svg.addEventListener('pointermove',e=>{
   if(drag){
     if(e.pointerId!==drag.pointer) return;
     const p=svgPoint(e), {n,g,links,ox,oy}=drag;
+    if(!g){
+      tx=p.x-ox; ty=p.y-oy;
+      apply();
+      return;
+    }
     n.x=(p.x-tx)/scale-ox;
     n.y=(p.y-ty)/scale-oy;
     g.setAttribute('transform','translate('+n.x+','+n.y+')');
@@ -1768,21 +1875,32 @@ svg.addEventListener('pointermove',e=>{
   const g=e.target.closest('.node');
   if(!g){ tip.hidden=true; return; }
   const n=N[idx[g.dataset.id]];
-  const groups=n.groups.map(g=>'社区 '+g.id+' · '+g.papers+' 篇'+(g.first?' · '+g.first+(g.last!==g.first?'–'+g.last:''):'')).join('<br>');
-  tip.innerHTML='<b>'+escapeText(n.name)+'</b><br>署名单位：'+escapeText(n.orgs)+'<br>'+(groups||'未归入社区')+'<br>图内合作权重合计：'+n.deg;
+  const groups=n.groups.map(g=>escapeText(g.name)+' · '+g.papers+' 篇署名记录'+(g.first?' · '+g.first+(g.last!==g.first?'–'+g.last:''):'')).join('<br>');
+  const weights=n.seed_collaborations.length
+    ? n.seed_collaborations.map(c=>'与'+escapeText(c.name)+'的合作权重：'+c.weight).join('<br>')
+    : '图内合作权重合计：'+n.deg;
+  tip.innerHTML='<b>'+escapeText(n.name)+'</b><br>署名单位：'+escapeText(n.orgs)+'<br>'+(groups||'未归入社区')+'<br>'+weights;
   tip.hidden=false;
   tip.style.left=Math.max(8,Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8))+'px';
   tip.style.top=Math.max(8,Math.min(e.clientY+14,innerHeight-tip.offsetHeight-8))+'px';
 });
-svg.addEventListener('lostpointercapture',()=>{drag=null;});
+svg.addEventListener('lostpointercapture',e=>{
+  if(drag?.pointer!==e.pointerId) return;
+  drag=null;
+  svg.classList.remove('dragging');
+});
 svg.addEventListener('pointerleave',()=>{tip.hidden=true;});
-document.getElementById('q').addEventListener('input',e=>{
-  const q=e.target.value.trim().toLowerCase();
-  const matches=N.map(n=>!q||n.name.toLowerCase().includes(q)||n.orgs.toLowerCase().includes(q));
+const authorSearch=document.getElementById('q');
+authorSearch.addEventListener('input',()=>{
+  const q=authorSearch.value.trim().toLowerCase();
+  const matches=N.map(n=>n.name.toLowerCase().includes(q)||n.orgs.toLowerCase().includes(q));
   nodeElements.forEach((g,i)=>{
     g.classList.toggle('hit',!!q&&matches[i]); g.classList.toggle('dim',!matches[i]);
   });
-  edgeElements.forEach((line,i)=>line.classList.toggle('dim',!matches[L[i].a]&&!matches[L[i].b]));
+  edgeElements.forEach((line,i)=>{
+    const edge=L[i];
+    line.classList.toggle('dim',!matches[edge.a]&&!matches[edge.b]);
+  });
 });
 </script>
 </body>
@@ -1791,8 +1909,8 @@ document.getElementById('q').addEventListener('input',e=>{
 
 
 def export_all(out: Path, args, run_id, works, persons, person_orgs, work_persons,
-               merge_log, edges, kept, sub, cid, degree, roles, method, seeds,
-               factions, cross_rows, stats, memberships, authorship=None):
+               merge_log, edges, kept, cid, degree, roles, method, seeds,
+               factions, cross_rows, stats, memberships, nodes, authorship, *, standalone_orgs):
     name = lambda p: persons[p]["display_name"]
     es = lambda s: "; ".join(sorted(x for x in s if x))
 
@@ -1800,8 +1918,6 @@ def export_all(out: Path, args, run_id, works, persons, person_orgs, work_person
     kept_keys = {(e["src"], e["dst"]) for e in kept}
     npapers = Counter()
     role_counts = defaultdict(Counter)
-    authorship = {(wid, p): (authorship or {}).get((wid, p), {})
-                  for wid, pids in work_persons.items() for p in pids}
     authorship_rows = []
     for pids in work_persons.values():
         for p in pids:
@@ -1836,7 +1952,7 @@ def export_all(out: Path, args, run_id, works, persons, person_orgs, work_person
         "first_year": e["first_year"], "last_year": e["last_year"],
         "year_counts": e["year_counts"],
         "kept_by_threshold": int((e["src"], e["dst"]) in kept_keys),
-        "same_faction": int(bool(memberships[e["src"]].keys() & memberships[e["dst"]].keys())),
+        "same_faction": int(e.get("same_faction", False)),
     } for e in edges],
         ["src", "dst", "src_name", "dst_name", "coauthored_papers", "role_weight",
          "first_year", "last_year", "year_counts", "kept_by_threshold", "same_faction"])
@@ -1868,18 +1984,20 @@ def export_all(out: Path, args, run_id, works, persons, person_orgs, work_person
          "n_coauthors", "total_collab_times", "faction_id",
          "faction_ids", "role", "is_seed", "review_flag", "first_year", "last_year"])
 
+    faction_names = {row["faction_id"]: row["faction_name"] for row in factions}
     membership_rows = [
-        {"person_id": p, "name": name(p), "faction_id": group,
+        {"person_id": p, "name": name(p), "faction_id": group, "faction_name": faction_names[group],
          "is_primary": int(group == cid[p]), **evidence}
         for p, groups in sorted(memberships.items()) for group, evidence in groups.items()
     ]
     write_csv(out / "faction_memberships.csv", membership_rows,
               ["person_id", "name", "faction_id", "is_primary", "is_base", "role", "supporting_papers",
-               "community_partners", "first_year", "last_year", "year_counts", "affiliations", "work_ids"])
+               "community_partners", "first_year", "last_year", "year_counts", "affiliations", "work_ids",
+               "faction_name"])
     write_csv(out / "factions.csv", factions,
               ["faction_id", "size", "members", "core_members", "internal_pairs",
                "internal_collab_times", "internal_role_weight", "mean_collab_per_pair", "top_pairs",
-               "cross_faction_collab_times", "edges_kept_by_threshold"])
+               "cross_faction_collab_times", "edges_kept_by_threshold", "faction_name"])
     write_csv(out / "faction_cross.csv", cross_rows,
               ["faction_a", "faction_b", "collab_times", "role_weight"])
 
@@ -1905,25 +2023,42 @@ def export_all(out: Path, args, run_id, works, persons, person_orgs, work_person
     write_csv(out / "merge_log.csv", merge_log,
               ["name_key", "decision", "person_id", "work_id", "evidence", "detail"])
 
-    viz_nodes = set(seeds) if args.mode == "seed" else set(persons)
-    for e in sub:
-        viz_nodes.add(e["src"])
-        viz_nodes.add(e["dst"])
+    viz_nodes = set(nodes)
     if len(viz_nodes) > args.max_nodes:
-        ranked = sorted(persons, key=lambda p: (-degree.get(p, 0), p))[:args.max_nodes]
-        viz_nodes = set(ranked)
-        LOG.warning("Visualisation truncated to top %d nodes by collaboration strength",
-                    args.max_nodes)
+        viz_nodes = set(sorted(nodes, key=lambda p: (p not in seeds, -degree[p], p))[:args.max_nodes])
+        LOG.warning("Visualisation truncated to %d nodes", args.max_nodes)
     if args.no_html:
         LOG.info("Skipping network.html (--no-html); CSV and SQLite outputs are complete")
     else:
-        viz_edges = [e for e in sub if e["src"] in viz_nodes and e["dst"] in viz_nodes]
+        seed_set = set(seeds)
+        viz_edges = [e for e in edges if e["src"] in viz_nodes and e["dst"] in viz_nodes
+                     and (e["n_papers"] >= args.min_collab or e.get("same_faction")
+                          or e["src"] in seed_set or e["dst"] in seed_set)]
         if len(viz_edges) > args.max_edges:
             viz_edges = sorted(viz_edges, key=lambda e: -graph_weight(e, args))[:args.max_edges]
             LOG.warning("Visualisation truncated to top %d edges by collaboration "
                         "count (raise --max-edges if needed)", args.max_edges)
+        joint_units = defaultdict(set)
+        for (_, pid), signature in authorship.items():
+            if pid in viz_nodes:
+                for key, names in signature.get("affiliation_names", {}).items():
+                    if key not in standalone_orgs:
+                        joint_units[pid].update(names)
+        seed_collaborations = defaultdict(list)
+        viz_degree = Counter()
+        for edge in viz_edges:
+            viz_degree[edge["src"]] += graph_weight(edge, args)
+            viz_degree[edge["dst"]] += graph_weight(edge, args)
+        for seed in seeds:
+            for edge in edges_by_person[seed]:
+                other = edge["dst"] if edge["src"] == seed else edge["src"]
+                if other in viz_nodes and not viz_degree[other]:
+                    seed_collaborations[other].append({"name": name(seed), "weight": graph_weight(edge, args)})
         build_html(out / "network.html", viz_nodes, viz_edges, persons, cid, memberships,
-                   degree, args, factions, seeds=seeds, paper_count=len(works))
+                   viz_degree, args, factions, seeds=seeds, joint_units=joint_units,
+                   paper_count=stats["works_in_network"],
+                   pending_affiliations=bool(stats["works_pending_affiliation"]),
+                   seed_collaborations=seed_collaborations)
 
     write_csv(out / "person_affiliations.csv", [
         {**rec, "name": name(pid), "orcid": persons[pid]["orcid"],
@@ -1949,6 +2084,7 @@ def export_all(out: Path, args, run_id, works, persons, person_orgs, work_person
             "seed_work": args.seed_work,
             "reference_works": args.reference_works,
             "affiliation_history": args.affiliation_history,
+            "org_parents": args.org_parents,
             "name_alias": getattr(args, "name_alias", None),
             "author_id": args.author_id,
             "org": args.org, "org_id": args.org_id,
@@ -2003,11 +2139,13 @@ def parse_args(argv=None):
     p.add_argument("--mode", choices=["scope", "seed", "all"], default="all")
     p.add_argument("--hop", type=int, default=1, help="neighbourhood radius in seed mode")
     p.add_argument("--min-collab", type=int, default=2,
-                   help="minimum co-authored papers for an edge to define a faction")
+                   help="minimum co-authored papers for peer discovery and drawn edges")
     p.add_argument("--edge-weight", choices=["role", "papers"], default="role",
-                   help="community and visualization weight; threshold still uses paper counts")
-    p.add_argument("--community", choices=["labelprop", "louvain"], default="labelprop")
+                   help="visualization weight; threshold still uses paper counts")
+    p.add_argument("--community", choices=["labelprop", "louvain"], default="louvain")
     p.add_argument("--resolution", type=float, default=1.0)
+    p.add_argument("--org-parents", help="CSV of sourced subordinate-unit to parent mappings")
+    p.add_argument("--affiliation-gaps", help="CSV of publication author positions pending affiliation review")
     p.add_argument("--max-works", type=int, default=500)
     p.add_argument("--max-orgs", type=int, default=8,
                    help="flag a person for review above this many affiliations")
@@ -2088,7 +2226,7 @@ def setup_logging(out: Path, quiet=False):
 def main(argv=None, *, quiet=False):
     args = parse_args(argv)
     if args.demo_out:
-        print("python faction_query.py --source demo --author \"K. Alden\" "
+        print("python faction_query.py --source demo --author \"示例作者 A\" "
               "--zone Q1 --min-collab 2 --out ./faction_output")
         return 0
     out = Path(args.out).resolve() if args.out else Path.cwd() / "faction_output"
@@ -2100,9 +2238,10 @@ def main(argv=None, *, quiet=False):
 
     # stage 1
     t0 = time.time()
-    aliases = load_alias_map(ASSETS / "org_alias_template.csv")
+    display_names = {}
+    aliases = load_alias_map(ASSETS / "org_alias_template.csv", display_names)
     if args.alias_map:
-        aliases.update(load_alias_map(args.alias_map))
+        aliases.update(load_alias_map(args.alias_map, display_names))
     ignored = load_ignored(args.ignore_orgs or ASSETS / "org_ignored_template.csv")
     zone_map = load_zone_map(args.zone_map)
     LOG.info("Stage 1/6 query scope: author=%s org=%s journal=%s zone=%s years=%s..%s mode=%s",
@@ -2128,8 +2267,10 @@ def main(argv=None, *, quiet=False):
             raise FileNotFoundError(f"Input CSV not found: {src}")
         rows = read_csv(src)
         LOG.info("Stage 2/6 loaded %d long-table rows from %s", len(rows), src)
-        works = rows_to_works(rows)
+        works = rows_to_works(rows, require_verified_affiliations=args.source == "local")
     aliases = link_org_ids(works, aliases)
+    display_names = {org_key(key[5:], "", aliases) if key.startswith("name:") else key: label
+                     for key, label in display_names.items()}
     scoped_works = apply_scope(works, args, zone_map, aliases)
     LOG.info("Stage 2/6 works matching scope filters: %d", len(scoped_works))
     if not scoped_works and not args.reference_works:
@@ -2162,12 +2303,59 @@ def main(argv=None, *, quiet=False):
     # stage 4
     authorship = {(row["work_id"], row["person_id"]): row["authorship"] for row in merge_log
                   if "authorship" in row and row["person_id"] in work_persons.get(row["work_id"], ())}
+    gaps = read_csv(Path(args.affiliation_gaps)) if args.affiliation_gaps else []
+    pending_positions = {(row["work_id"], row["author_order"]) for row in gaps if row["author_order"]}
+    affiliation_authorship = {
+        (wid, pid): signature for (wid, pid), signature in authorship.items()
+        if args.source != "openalex" and any(signature["affiliation_names"].values())
+        and (wid, str(signature["author_order"] or "")) not in pending_positions
+    }
+    missing = {wid for wid, _ in authorship.keys() - affiliation_authorship.keys()}
+    missing.update(row["work_id"] for row in gaps)
+    pending_works = sorted(missing & work_persons.keys())
+    if pending_works:
+        LOG.warning("%d in-scope papers await affiliation verification", len(pending_works))
+    # Score against the full byline before excluding unverified author positions.
     score_authorships(work_persons, authorship)
-    edges = build_edges(work_persons, works, authorship, seeds)
+    resolved_person_count = len(persons)
+    work_persons = {wid: set() for wid in work_persons}
+    for wid, pid in affiliation_authorship:
+        work_persons[wid].add(pid)
+    eligible = {pid for _, pid in affiliation_authorship}
+    persons = {pid: person for pid, person in persons.items() if pid in eligible}
+    seeds = [pid for pid in seeds if pid in eligible]
+    dates_by_org = defaultdict(list)
+    years = {work["work_id"]: work["year"] for work in works}
+    for person in persons.values():
+        person["org_display"] = set()
+        person["org_keys"] = set()
+        person["org_names"] = set()
+    for (wid, pid), signature in affiliation_authorship.items():
+        for key, names in signature["affiliation_names"].items():
+            label = display_names.get(key)
+            persons[pid]["org_display"].update([label] if label else names)
+        persons[pid]["org_keys"].update(signature["observed_keys"])
+        persons[pid]["org_names"].update(norm_org_name(name) for name in signature["affiliations"])
+        for key in signature["observed_keys"]:
+            dates = dates_by_org[pid, key]
+            if years[wid]:
+                dates.append(years[wid])
+    person_orgs = {
+        key: {**person_orgs[key], "first_year": min(dates, default=None),
+              "last_year": max(dates, default=None)}
+        for key, dates in dates_by_org.items()
+    }
+    edges = build_edges(work_persons, works, affiliation_authorship, seeds)
     # stage 5
-    kept, sub, cid, degree, roles, method, nodes = detect_factions(edges, persons, seeds, args)
-    memberships = community_memberships(cid, nodes, work_persons, works, authorship, roles, args)
-    factions, cross_rows = faction_stats(sub, edges, memberships, cid, persons, args)
+    kept, sub, degree, nodes = graph_scope(edges, persons, seeds, args)
+    peer_groups, method = detect_peer_groups(sub, seeds, args)
+    parents = load_org_parents(args.org_parents, aliases)
+    # A sole affiliation is established by one complete author byline, not a career history.
+    standalone_orgs = {next(iter(units)) for signature in affiliation_authorship.values()
+                       if len(units := signature["affiliation_names"]) == 1}
+    cid, roles, memberships, factions, cross_rows = affiliation_communities(
+        nodes, persons, works, affiliation_authorship, edges, sub, args, peer_groups,
+        parents, standalone_orgs, display_names)
     # stage 6
     seed_set = set(seeds)
     restricted = any(getattr(args, flag) is not None for flag in (
@@ -2175,22 +2363,25 @@ def main(argv=None, *, quiet=False):
     estimate_for = {pid for pid in seed_set if args.source == "local" and args.seed_work
                     and not restricted and not persons[pid]["orcid_conflict"]
                     and (persons[pid]["name_key"].startswith("verified:") or not persons[pid]["review_flag"])}
-    timeline = affiliation_timeline(works, persons, person_orgs, authorship, estimate_for,
+    timeline = affiliation_timeline(works, persons, person_orgs, affiliation_authorship, estimate_for,
                                     args.affiliation_history, aliases)
     write_csv(out / "affiliation_timeline.csv", timeline, TIMELINE_COLUMNS)
     stats = {
         "works_in_scope": len(works),
+        "works_in_network": sum(bool(pids & nodes) for pids in work_persons.values()),
+        "works_pending_affiliation": pending_works,
         "candidate_works": candidate_works,
         "reference_coverage": coverage,
         "long_table_rows": len(flat),
         "author_instances": sum(merge_counts.values()),
-        "persons_after_disambiguation": len(persons),
+        "persons_after_disambiguation": resolved_person_count,
+        "persons_in_network": len(nodes),
         "merge_decisions": merge_counts,
         "persons_flagged_for_review": sum(pid in persons for pid in flagged),
         "total_coauthor_pairs": len(edges),
         "pairs_kept_by_threshold": len(kept),
         "total_coauthorship_events": sum(e["n_papers"] for e in edges),
-        "role_coverage": {field: dict(Counter(sig[field] for sig in authorship.values()))
+        "role_coverage": {field: dict(Counter(sig[field] for sig in affiliation_authorship.values()))
                           for field in ROLE_FIELDS},
         "factions_detected": len([r for r in factions if r["faction_id"] > 0]),
         "persons_without_faction": sum(1 for c in cid.values() if c <= 0),
@@ -2203,15 +2394,16 @@ def main(argv=None, *, quiet=False):
         "elapsed_seconds": round(time.time() - t0, 2),
     }
     export_all(out, args, run_id, works, persons, person_orgs, work_persons,
-               merge_log, edges, kept, sub, cid, degree, roles, method, seeds,
-               factions, cross_rows, stats, memberships, authorship)
+               merge_log, edges, kept, cid, degree, roles, method, seeds,
+               factions, cross_rows, stats, memberships, nodes, affiliation_authorship,
+               standalone_orgs=standalone_orgs)
     delivered = json.loads((out / "summary.json").read_text(encoding="utf-8"))["outputs"]
     LOG.info("Stage 6/6 export complete: %s", ", ".join(delivered))
     LOG.info("SUMMARY %s", json.dumps(stats, ensure_ascii=False))
     if not quiet:
         print("\n派系摘要：")
         for r in factions:
-            print(f"  派系 {r['faction_id']}: {r['size']} 人, 内部合著 {r['internal_collab_times']} 次, "
+            print(f"  {r['faction_name']}: {r['size']} 人, 内部合著 {r['internal_collab_times']} 次, "
                   f"跨派系 {r['cross_faction_collab_times']} 次 | 核心: {r['core_members']}")
         print(f"\n输出目录: {out}")
     return 0
